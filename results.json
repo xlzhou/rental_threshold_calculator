@@ -1,0 +1,26 @@
+{
+  "config": {
+    "inventory": 10,
+    "periods": 30,
+    "cost": 50.0,
+    "salvage": 0.0,
+    "total_arrivals": 24.0,
+    "target_leftover": 3,
+    "failure_threshold": 5
+  },
+  "static_analysis": {
+    "threshold": 65.0,
+    "operational_cutoff": 65.0,
+    "expected_accepts": 9.0,
+    "expected_leftover": 1.0,
+    "conditional_mean_price": 72.5,
+    "expected_margin": 22.5,
+    "expected_penalty": 0.0,
+    "expected_profit": 202.5
+  },
+  "dynamic_analysis": {
+    "initial_value": 244.4874742175192,
+    "initial_bid_price": 19.203517819891744,
+    "initial_threshold": 69.20351781989174
+  }
+}
