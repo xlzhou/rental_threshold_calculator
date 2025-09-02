@@ -2,7 +2,7 @@
 
 ## 1) Overview
 
-**Goal:** Build a small calculator (CLI -compatible) that recommends **accept/reject** decisions for rental offers based on inventory, time left, costs, and price distribution. It must support **sub-cost acceptance** when needed to avoid end-of-horizon leftover risk (≤3 preferred; >5 = failure).
+**Goal:** Build a small calculator (CLI/Web -compatible) that recommends **accept/reject** decisions for rental offers based on inventory, time left, costs, and price distribution. It must support **sub-cost acceptance** when needed to avoid end-of-horizon leftover risk (≤3 preferred; >5 = failure).
 
 **Core idea:** Single-resource revenue management with a **threshold (bid-price) policy**. Baseline uses a **static cutoff**calibrated to expected arrivals; optional module provides a **dynamic (time/inventory) bid-price**. Includes a **pacing rule** to relax thresholds if behind target.
 
@@ -95,6 +95,7 @@
 ## 7) UI/UX Requirements
 
 ### Web (simple, responsive)
+- a simple web UI to receive inputs and output results
 
 - **Inputs panel:** X,T,c,; arrival rate/total N; empirical prices (textarea or CSV upload); L\\\*,L_fail​; penalty sliders.
 - **Results cards:** cutoff, expected accepts/leftover, conditional mean price, expected (penalty-adjusted) profit.

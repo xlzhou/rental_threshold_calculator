@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rental Threshold Calculator</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Rental Threshold Calculator</h1>
+            <p>Optimize rental inventory decisions with threshold-based policies</p>
+        </header>
+
+        <main class="main-content">
+            <!-- Inputs Panel -->
+            <section class="input-panel">
+                <h2>Configuration</h2>
+                
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label for="inventory">Starting Inventory (server): <span class="required">*</span></label>
+                        <input type="number" id="inventory" name="inventory" min="1" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="periods">Number of Periods (days): <span class="required">*</span></label>
+                        <input type="number" id="periods" name="periods" min="1" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="cost">Unit Cost (K): <span class="required">*</span></label>
+                        <input type="number" id="cost" name="cost" step="0.01" min="0" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="salvage">Salvage Value (s):</label>
+                        <input type="number" id="salvage" name="salvage" step="0.01" min="0" value="0">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="arrival-rate">Arrival Rate (per period): <span class="required">*</span></label>
+                        <input type="number" id="arrival-rate" name="arrival-rate" step="0.1" min="0.1" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="target-leftover">Target Leftover (L*):</label>
+                        <input type="number" id="target-leftover" name="target-leftover" min="0" value="3">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="failure-threshold">Failure Threshold:</label>
+                        <input type="number" id="failure-threshold" name="failure-threshold" min="1" value="5">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="cost-floor">Cost Floor (optional):</label>
+                        <input type="number" id="cost-floor" name="cost-floor" step="0.01">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="prices">Empirical Prices (comma-separated): <span class="required">*</span></label>
+                    <textarea id="prices" name="prices" rows="3" placeholder="72, 72, 70, 68, 65, 62, 60, 60, 58, 58, 57, 56, 56, 55, 50, 50" required></textarea>
+                </div>
+
+                <div class="form-group">
+                    <label for="csv-upload">Or upload CSV file:</label>
+                    <input type="file" id="csv-upload" name="csv-upload" accept=".csv">
+                </div>
+
+                <button id="calculate-btn" class="btn btn-primary">Calculate Threshold</button>
+                <button id="reset-btn" class="btn btn-secondary">Reset Form</button>
+            </section>
+
+            <!-- Results Section -->
+            <section class="results-panel" id="results-panel" style="display: none;">
+                <h2>Static Threshold Analysis</h2>
+                
+                <div class="results-grid">
+                    <div class="result-card">
+                        <h3>Optimal Threshold (K)</h3>
+                        <div class="result-value" id="optimal-threshold">-</div>
+                    </div>
+
+                    <div class="result-card">
+                        <h3>Operational Cutoff (K)</h3>
+                        <div class="result-value" id="operational-cutoff">-</div>
+                    </div>
+
+                    <div class="result-card">
+                        <h3>Expected Accepts</h3>
+                        <div class="result-value" id="expected-accepts">-</div>
+                    </div>
+
+                    <div class="result-card">
+                        <h3>Expected Leftover</h3>
+                        <div class="result-value" id="expected-leftover">-</div>
+                    </div>
+
+                    <div class="result-card">
+                        <h3>Conditional Mean Price (K)</h3>
+                        <div class="result-value" id="conditional-mean-price">-</div>
+                    </div>
+
+                    <div class="result-card">
+                        <h3>Expected Profit (K)</h3>
+                        <div class="result-value" id="expected-profit">-</div>
+                    </div>
+                </div>
+
+                <!-- Dynamic Programming Analysis -->
+                <h2>Dynamic Programming Analysis</h2>
+                <div class="results-grid">
+                    <div class="result-card">
+                        <h3>Initial Value Function V₀(X)</h3>
+                        <div class="result-value" id="initial-value">-</div>
+                    </div>
+
+                    <div class="result-card">
+                        <h3>Initial Bid Price b₀(X)</h3>
+                        <div class="result-value" id="initial-bid-price">-</div>
+                    </div>
+
+                    <div class="result-card">
+                        <h3>Initial Threshold (K)</h3>
+                        <div class="result-value" id="initial-threshold">-</div>
+                    </div>
+                </div>
+
+                <!-- Decision Guidance -->
+                <h2>Decision Guidance</h2>
+                <div class="guidance-section">
+                    <ul id="decision-guidance">
+                        <li>Calculate threshold first to see guidance</li>
+                    </ul>
+                </div>
+
+                <div class="export-buttons">
+                    <button id="export-csv" class="btn btn-secondary">Export CSV</button>
+                    <button id="export-json" class="btn btn-secondary">Export JSON</button>
+                </div>
+            </section>
+
+            <!-- Offer Checker -->
+            <section class="offer-checker">
+                <h2>Live Offer Decision</h2>
+                
+                <div class="form-group">
+                    <label for="offer-price">Offer Price (K): <span class="required">*</span></label>
+                    <input type="number" id="offer-price" name="offer-price" step="0.01" min="0">
+                </div>
+
+                <div class="form-group">
+                    <label for="current-period">Current Period: <span class="required">*</span></label>
+                    <input type="number" id="current-period" name="current-period" min="0">
+                </div>
+
+                <div class="form-group">
+                    <label for="current-inventory">Current Inventory: <span class="required">*</span></label>
+                    <input type="number" id="current-inventory" name="current-inventory" min="0">
+                </div>
+
+                <div class="form-group">
+                    <label for="threshold-type">Decision Method:</label>
+                    <select id="threshold-type" name="threshold-type">
+                        <option value="dynamic">Dynamic Programming (Recommended)</option>
+                        <option value="static">Static Threshold</option>
+                    </select>
+                </div>
+
+                <button id="check-offer" class="btn btn-primary">Check Offer</button>
+
+                <div class="offer-results-container" id="offer-results-container" style="display: none;">
+                    <div class="threshold-display">
+                        <h3>Current Dynamic Threshold</h3>
+                        <div class="threshold-info">
+                            <p><strong>Threshold for current state:</strong> <span id="current-threshold">-</span></p>
+                            <p><strong>Static threshold:</strong> <span id="static-comparison">-</span></p>
+                            <p><small>Threshold updates automatically based on current period and inventory</small></p>
+                        </div>
+                    </div>
+
+                    <div class="offer-result">
+                        <h3>Decision: <span id="decision-text">-</span></h3>
+                        <p id="rationale-text">Make an offer decision to see results</p>
+                        <p id="margin-text"></p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Pacing Widget -->
+            <section class="pacing-widget">
+                <h2>Pacing Status</h2>
+                
+                <div class="pacing-hint">
+                    <p><strong>💡 Hint:</strong> For pacing check, you only need to fill:</p>
+                    <ul>
+                        <li>✓ <strong>Starting Inventory (server)</strong> in Configuration section</li>
+                        <li>✓ <strong>Number of Periods (days)</strong> in Configuration section</li>
+                        <li>✓ <strong>Accepted Units So Far</strong> below</li>
+                    </ul>
+                    <p><small>Other fields with red * are not required for pacing analysis.</small></p>
+                </div>
+                
+                <div class="form-group">
+                    <label for="accepted-so-far">Accepted Units So Far: <span class="required">*</span></label>
+                    <input type="number" id="accepted-so-far" name="accepted-so-far" min="0">
+                </div>
+
+                <button id="check-pacing" class="btn btn-primary">Check Pacing</button>
+
+                <div id="pacing-result" class="pacing-result" style="display: none;">
+                    <h3>Status: <span id="pacing-status"></span></h3>
+                    <p id="pacing-recommendation"></p>
+                    <button id="relax-threshold" class="btn btn-warning" style="display: none;">Relax Threshold</button>
+                </div>
+            </section>
+        </main>
+
+        <footer>
+            <p>Rental Threshold Calculator v1.0</p>
+        </footer>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>

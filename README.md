@@ -68,9 +68,9 @@ Create a CSV file with prices (one per line):
 Then reference it:
 ```bash
 python3 rental_threshold_calculator_dynamic.py \
-  --inventory 10 \
+  --inventory 30 \
   --periods 30 \
-  --cost 50 \
+  --cost 70 \
   --arrival-rate 0.8 \
   --prices sample_prices.csv
 ```
