@@ -27,6 +27,11 @@ def index():
     """Serve the main web interface."""
     return render_template('index.html')
 
+@app.route('/help')
+def help():
+    """Serve the help page."""
+    return render_template('help.html')
+
 @app.route('/api/calculate', methods=['POST'])
 def calculate_threshold():
     """Calculate optimal threshold based on configuration."""

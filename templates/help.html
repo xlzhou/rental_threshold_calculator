@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Help - Rental Threshold Calculator</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <style>
+        .help-container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        .help-section {
+            margin-bottom: 30px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border-left: 4px solid #3498db;
+        }
+        .help-section h2 {
+            color: #2c3e50;
+            margin-top: 0;
+        }
+        .help-section h3 {
+            color: #34495e;
+            margin-top: 20px;
+        }
+        .parameter-list {
+            background: white;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+        .parameter-list dt {
+            font-weight: bold;
+            color: #2c3e50;
+            margin-top: 10px;
+        }
+        .parameter-list dd {
+            margin-left: 20px;
+            margin-bottom: 8px;
+        }
+        .example-box {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            border-radius: 5px;
+            padding: 15px;
+            margin: 15px 0;
+        }
+        .back-link {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: #3498db;
+            color: white;
+            padding: 10px 15px;
+            text-decoration: none;
+            border-radius: 5px;
+            font-weight: bold;
+        }
+        .back-link:hover {
+            background: #2980b9;
+        }
+    </style>
+</head>
+<body>
+    <a href="javascript:window.close()" class="back-link">← Close Help</a>
+    
+    <div class="help-container">
+        <header>
+            <h1>Rental Threshold Calculator - Help Guide</h1>
+            <p>Learn how to use the calculator to optimize your rental inventory decisions</p>
+        </header>
+
+        <div class="help-section">
+            <h2>🎯 What is the Rental Threshold Calculator?</h2>
+            <p>This tool helps you determine the optimal pricing threshold for accepting rental requests. It uses dynamic programming to find the best policy that maximizes your revenue while managing inventory risk.</p>
+            <p>这个工具可以帮助你确定接受租赁请求的最佳价格阈值。它使用动态规划来寻找最优策略，在最大化收益的同时，控制库存风险。</p>
+
+            <h3>Key Concepts:</h3>
+            <ul>
+                <li><strong>Static Threshold:</strong> A fixed price below which you reject all offers<br>
+                    静态阈值（Static Threshold）：一个固定的价格，低于该价格的所有报价都被拒绝。</li>
+                <li><strong>Dynamic Threshold:</strong> A time and inventory-dependent threshold that adapts to current conditions<br>
+                    动态阈值（Dynamic Threshold）：一个随时间和库存变化而调整的阈值，能够根据当前状况自适应。</li>
+                <li><strong>Policy:</strong> The decision rule that tells you whether to accept or reject an offer<br>
+                    决策策略（Policy）：一条决策规则，用来判断是否接受或拒绝某个报价。</li>
+            </ul>
+        </div>
+
+        <div class="help-section">
+            <h2>📊 Input Parameters</h2>
+            <div class="parameter-list">
+                <dl>
+                    <dt>Starting Inventory (X)</dt>
+                    <dd>The number of units (servers) you have available at the beginning</dd>
+                    <dd>起始的库存数量，这里指的是待租赁的服务器台数</dd>
+
+                    <dt>Number of Periods (T)</dt>
+                    <dd>The time horizon for your rental business (e.g., 30 days)</dd>
+                    <dd>指的是整个周期，如果你按月测算，那就是30天，如果是按年测算那就是365天</dd>
+
+                    <dt>Unit Cost (c)</dt>
+                    <dd>The cost per unit in thousands. This is your break-even point</dd>
+                    <dd>单位成本</dd>
+                    
+                    <dt>Salvage Value (s)</dt>
+                    <dd>The value you can recover from unsold inventory at the end (default: 0)</dd>
+                    <dd>残值，在租赁业务中，残值一般为0，就是没租出去没有任何收益</dd>
+
+                    <dt>Arrival Rate</dt>
+                    <dd>Average number of customers arriving per period (e.g., 0.8 means 0.8 customers per day on average)</dd>
+                    <dd>平均客户到达率（每个周期），比如周期为月，则0.8代表每天平均收到0.8个报价，本月内总共有30*0.8=24个报价</dd>
+                    <dt>Target Leftover (L*)</dt>
+                    <dd>Desired number of units to keep in reserve (default: 3)</dd>
+                    <dd>Target Leftover (L*) – 目标剩余库存
+                        定义：在整个销售/租赁周期结束时，你允许最多剩下的库存数量。
+                        在你的设定里，L* = 3。
+                        含义：这是一个“软目标”，即便最后真的剩 3 个没租掉，也算是可以接受的，不算失败。
+                        作用：计算接受阈值时，公式会尽量保证在预期上把库存卖到只剩 ≤ L*。
+                        比如你有 19 个库存，目标 L* = 3，就意味着必须至少卖掉 16 个。
+                        于是系统会根据报价分布和剩余天数，选择一个阈值（最低接受价），使得预期销量 ≥16。</dd>
+
+                    <dt>Failure Threshold</dt>
+                    <dd>Maximum leftover inventory before it's considered a failure (default: 5)</dd>
+                    
+                    <dd>Failure Threshold – 失败门槛
+                        定义：如果期末剩余库存超过这个数值，则被视为彻底失败。
+                        在你的设定里，Failure Threshold = 5。
+                        含义：这是一个“硬约束”。如果最后剩余量 > 5，就算中途赚了一点钱，也被视为任务失败。
+                        作用：
+                        在计算接受阈值时，哪怕牺牲利润（接受低于成本的 sub-c 报价），也要避免超过这个门槛。
+                        程序里会做 Safety Check：如果用当前阈值预计剩余 > 5，就自动降低阈值（接受更多低价），以确保安全。</dd>
+                </dl>
+            </div>
+        </div>
+
+        <div class="help-section">
+            <h2>💰 Price Input Methods</h2>
+            
+            <h3>1. Manual Entry</h3>
+            <p>Enter historical prices separated by commas. Example: <code>65,64,60,59,55</code></p>
+            <p>输入历史价格，用逗号分隔</p>
+            
+            <h3>2. CSV File Upload</h3>
+            <p>Upload a CSV file with prices. The file should have one column with numerical values:</p>
+            <div class="example-box">
+                <strong>Example CSV format:</strong><br>
+                65<br>
+                64<br>
+                60<br>
+                59<br>
+                55
+            </div>
+        </div>
+
+        <div class="help-section">
+            <h2>🔍 Current State Analysis</h2>
+            <p>Use this section to check what the optimal decision is for your current situation:</p>
+            
+            <div class="parameter-list">
+                <dl>
+                    <dt>Offer Price</dt>
+                    <dd>The price a customer is currently offering</dd>
+                    <dd>客户出价</dd>
+                    
+                    <dt>Current Period</dt>
+                    <dd>Which time period you're currently in (0 to T-1)</dd>
+                    <dd>当前是周期的第几天</dd>
+                    
+                    
+                    <dt>Current Inventory</dt>
+                    <dd>How many units you currently have available</dd>
+                    <dd>当前可用库存</dd>
+                </dl>
+            </div>
+        </div>
+
+        <div class="help-section">
+            <h2>📈 Understanding Results</h2>
+            
+            <h3>Threshold Display</h3>
+            <ul>
+                <li><strong>$X.XX K:</strong> Accept offers above this price</li>
+                <li><strong>$0.00 K:</strong> Accept any offer (usually when inventory is high and time is running out)</li>
+                <li><strong>No offers accepted:</strong> Reject all offers (usually at end of period or no inventory)</li>
+            </ul>
+            
+            <h3>When Threshold is $0.00</h3>
+            <p>This happens when:</p>
+            <ul>
+                <li>You have too much inventory relative to remaining time</li>
+                <li>The algorithm prioritizes selling over holding inventory</li>
+                <li>Salvage value is low or zero</li>
+            </ul>
+        </div>
+
+        <div class="help-section">
+            <h2>💡 Example Scenario</h2>
+            <div class="example-box">
+                <strong>Server Rental Business:</strong><br><br>
+                • Starting Inventory: 10 servers<br>
+                • Number of Periods: 30 days<br>
+                • Unit Cost: $60K per server<br>
+                • Arrival Rate: 0.8 customers/day<br>
+                • Historical Prices: $65K, $64K, $60K, $59K, $55K<br><br>
+                
+                <strong>Interpretation:</strong><br>
+                With 0.8 customers per day and 10 servers over 30 days, you expect ~24 customers. The calculator will find the optimal threshold to maximize profit while managing the risk of unsold inventory.
+            </div>
+        </div>
+
+        <div class="help-section">
+            <h2>⚠️ Common Issues</h2>
+            
+            <h3>Threshold Shows $0.00</h3>
+            <p><strong>Cause:</strong> Too much inventory, too little time remaining<br>
+            <strong>Solution:</strong> Increase arrival rate, reduce starting inventory, or extend time horizon</p>
+            
+            <h3>No Offers Accepted</h3>
+            <p><strong>Cause:</strong> End of time horizon or no inventory remaining<br>
+            <strong>Solution:</strong> Check current period and inventory values</p>
+            
+            <h3>Very High Thresholds</h3>
+            <p><strong>Cause:</strong> Low arrival rate or high costs<br>
+            <strong>Solution:</strong> Review arrival rate and cost parameters</p>
+        </div>
+
+        <div class="help-section">
+            <h2>🚀 Tips for Best Results</h2>
+            <ul>
+                <li>Use realistic historical price data for better accuracy</li>
+                <li>Regularly update your current period and inventory</li>
+                <li>Consider seasonal variations in arrival rates</li>
+                <li>Monitor the difference between static and dynamic thresholds</li>
+                <li>Adjust target leftover based on demand uncertainty</li>
+            </ul>
+        </div>
+    </div>
+</body>
+</html>
