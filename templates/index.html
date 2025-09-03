@@ -195,14 +195,23 @@
 
             <!-- Pacing Widget -->
             <section class="pacing-widget">
-                <h2>Pacing Status</h2>
+                <h2>Pacing Status(检查销售进度，可以忽略)</h2>
                 
                 <div class="pacing-hint">
                     <p><strong>💡 Hint:</strong> For pacing check, you only need to fill:</p>
                     <ul>
-                        <li>✓ <strong>Starting Inventory (servers)</strong> in Configuration section</li>
-                        <li>✓ <strong>Number of Periods (days)</strong> in Configuration section</li>
-                        <li>✓ <strong>Accepted Units So Far</strong> below</li>
+                        <li>✓ <strong>Starting Inventory (servers)</strong> - Used to calculate total units that need to be sold</li>
+                        <li>✓ <strong>Number of Periods (days)</strong> - Used to determine mid-horizon timing (periods ÷ 2)</li>
+                        <li>✓ <strong>Target Leftover (L*)</strong> - Used in target calculation: (Inventory - Target Leftover) × 50%</li>
+                        <li>✓ <strong>Current Period</strong> - Used to check timing (defaults to 0 if empty = "too early")</li>
+                        <li>✓ <strong>Accepted Units So Far</strong> - Compared against target to determine if on track or behind</li>
+                    </ul>
+                    <p><strong>📊 Pacing Logic:</strong></p>
+                    <ul>
+                        <li><strong>Too Early:</strong> If Current Period &lt; Number of Periods ÷ 2</li>
+                        <li><strong>Target by Mid-Horizon:</strong> (Starting Inventory - Target Leftover) × 50%</li>
+                        <li><strong>On Track:</strong> Accepted So Far ≥ Target</li>
+                        <li><strong>Behind:</strong> Accepted So Far &lt; Target → Recommend relaxing threshold</li>
                     </ul>
                     <p><small>Other fields with red * are not required for pacing analysis.</small></p>
                 </div>
