@@ -3,6 +3,7 @@ class RentalCalculator {
     constructor() {
         this.initializeEventListeners();
         this.results = null;
+        this.initializeI18n();
     }
 
     initializeEventListeners() {
@@ -56,6 +57,48 @@ class RentalCalculator {
         document.getElementById('current-inventory').addEventListener('input', () => {
             this.updateDynamicThreshold();
         });
+
+        // Language selector
+        document.getElementById('language-selector').addEventListener('change', (e) => {
+            this.changeLanguage(e.target.value);
+        });
+    }
+
+    initializeI18n() {
+        if (window.i18n) {
+            // Set initial language from i18n system
+            const currentLang = window.i18n.getCurrentLanguage();
+            document.getElementById('language-selector').value = currentLang;
+        }
+    }
+
+    changeLanguage(language) {
+        if (window.i18n) {
+            window.i18n.setLanguage(language);
+            this.updateDynamicTexts();
+        }
+    }
+
+    updateDynamicTexts() {
+        // Update any dynamic text content that may have been set by JavaScript
+        const calculateBtn = document.getElementById('calculate-btn');
+        const checkOfferBtn = document.getElementById('check-offer');
+        const checkPacingBtn = document.getElementById('check-pacing');
+        
+        if (calculateBtn && !calculateBtn.disabled) {
+            calculateBtn.textContent = window.i18n.t('calculate_threshold');
+        }
+        if (checkOfferBtn && !checkOfferBtn.disabled) {
+            checkOfferBtn.textContent = window.i18n.t('check_offer');
+        }
+        if (checkPacingBtn && !checkPacingBtn.disabled) {
+            checkPacingBtn.textContent = window.i18n.t('check_pacing');
+        }
+
+        // Update decision guidance if results are available
+        if (this.results) {
+            this.displayDecisionGuidance(this.results);
+        }
     }
 
     async calculateThreshold() {
@@ -83,7 +126,7 @@ class RentalCalculator {
                 this.results = data;
                 this.displayResults(data);
                 this.showResultsPanel();
-                this.showSuccess('Calculation completed successfully!');
+                this.showSuccess(window.i18n ? window.i18n.t('calculation_success') : 'Calculation completed successfully!');
             } else {
                 this.showError('Calculation failed: ' + (data.error || 'Unknown error'));
             }
@@ -97,7 +140,7 @@ class RentalCalculator {
 
     async checkOffer() {
         if (!this.results) {
-            this.showError('Please calculate threshold first');
+            this.showError(window.i18n ? window.i18n.t('no_results') : 'Please calculate threshold first');
             return;
         }
 
@@ -315,15 +358,32 @@ class RentalCalculator {
         const targetSellThrough = config.inventory - config.target_leftover;
         const pacingPeriod = Math.floor(config.periods / 2);
         
+        // Get current language
+        const isZh = window.i18n && window.i18n.getCurrentLanguage() === 'zh';
+        
         const guidance = [
-            `• Accept offers ≥ $${results.operational_cutoff.toFixed(2)} (static threshold)`,
-            `• Accept offers ≥ $${dynamic.initial_threshold.toFixed(2)} (dynamic threshold, t=0)`,
-            `• Target sell-through: ${targetSellThrough} units`,
-            `• Monitor pacing at period ${pacingPeriod}`,
-            `• Expected leftover: ${results.expected_leftover.toFixed(1)} units (target: ≤${config.target_leftover})`,
+            isZh ? 
+                `• 接受报价 ≥ $${results.operational_cutoff.toFixed(2)}（静态阈值）` :
+                `• Accept offers ≥ $${results.operational_cutoff.toFixed(2)} (static threshold)`,
+            isZh ?
+                `• 接受报价 ≥ $${dynamic.initial_threshold.toFixed(2)}（动态阈值，t=0）` :
+                `• Accept offers ≥ $${dynamic.initial_threshold.toFixed(2)} (dynamic threshold, t=0)`,
+            isZh ?
+                `• 目标销售量：${targetSellThrough} 个单位` :
+                `• Target sell-through: ${targetSellThrough} units`,
+            isZh ?
+                `• 在第 ${pacingPeriod} 周期监控进度` :
+                `• Monitor pacing at period ${pacingPeriod}`,
+            isZh ?
+                `• 预期剩余：${results.expected_leftover.toFixed(1)} 个单位（目标：≤${config.target_leftover}）` :
+                `• Expected leftover: ${results.expected_leftover.toFixed(1)} units (target: ≤${config.target_leftover})`,
             results.expected_leftover > config.failure_threshold ? 
-                `⚠️ Warning: Expected leftover (${results.expected_leftover.toFixed(1)}) exceeds failure threshold (${config.failure_threshold})` : 
-                `✓ Expected leftover within acceptable range`
+                (isZh ? 
+                    `⚠️ 警告：预期剩余（${results.expected_leftover.toFixed(1)}）超过失败阈值（${config.failure_threshold}）` :
+                    `⚠️ Warning: Expected leftover (${results.expected_leftover.toFixed(1)}) exceeds failure threshold (${config.failure_threshold})`) : 
+                (isZh ?
+                    `✓ 预期剩余在可接受范围内` :
+                    `✓ Expected leftover within acceptable range`)
         ];
         
         guidanceList.innerHTML = guidance.map(item => `<li>${item}</li>`).join('');
@@ -377,10 +437,42 @@ class RentalCalculator {
         const rationaleText = document.getElementById('rationale-text');
         const marginText = document.getElementById('margin-text');
 
-        decisionText.textContent = data.decision;
+        // Get current language
+        const isZh = window.i18n && window.i18n.getCurrentLanguage() === 'zh';
+
+        // Translate decision text
+        let decisionDisplay = data.decision;
+        if (isZh) {
+            if (data.accept) {
+                decisionDisplay = '接受报价';
+            } else {
+                decisionDisplay = '拒绝报价';
+            }
+        }
+
+        decisionText.textContent = decisionDisplay;
         decisionText.className = data.accept ? 'accept' : 'reject';
-        rationaleText.textContent = data.rationale;
-        marginText.textContent = data.margin > 0 ? `Margin: $${data.margin.toFixed(2)}` : '';
+        
+        // Translate rationale (this comes from backend, so we handle common patterns)
+        let rationaleDisplay = data.rationale;
+        if (isZh && data.rationale) {
+            // Common rationale patterns translation
+            rationaleDisplay = data.rationale
+                .replace(/Accept: offer price/g, '接受：报价')
+                .replace(/Reject: offer price/g, '拒绝：报价')
+                .replace(/exceeds threshold/g, '超过阈值')
+                .replace(/below threshold/g, '低于阈值')
+                .replace(/threshold/g, '阈值')
+                .replace(/offer/g, '报价')
+                .replace(/price/g, '价格');
+        }
+        
+        rationaleText.textContent = rationaleDisplay;
+        
+        // Translate margin text
+        const marginDisplay = data.margin > 0 ? 
+            (isZh ? `利润：$${data.margin.toFixed(2)}` : `Margin: $${data.margin.toFixed(2)}`) : '';
+        marginText.textContent = marginDisplay;
 
         // The container is already visible, no need to show individually
     }
@@ -391,8 +483,35 @@ class RentalCalculator {
         const recommendationText = document.getElementById('pacing-recommendation');
         const relaxBtn = document.getElementById('relax-threshold');
 
-        statusText.textContent = data.status.replace('_', ' ').toUpperCase();
-        recommendationText.textContent = data.recommendation;
+        // Get current language
+        const isZh = window.i18n && window.i18n.getCurrentLanguage() === 'zh';
+
+        // Translate status
+        let statusDisplay = data.status.replace('_', ' ').toUpperCase();
+        if (isZh) {
+            const statusTranslations = {
+                'TOO EARLY': '太早',
+                'ON TRACK': '按计划进行',
+                'BEHIND': '进度落后'
+            };
+            statusDisplay = statusTranslations[statusDisplay] || statusDisplay;
+        }
+        statusText.textContent = statusDisplay;
+
+        // Translate recommendation
+        let recommendationDisplay = data.recommendation;
+        if (isZh && data.recommendation) {
+            recommendationDisplay = data.recommendation
+                .replace(/Too early to check pacing/g, '检查进度为时过早')
+                .replace(/On track with sales/g, '销售进度正常')
+                .replace(/Behind on sales/g, '销售进度落后')
+                .replace(/Consider relaxing threshold/g, '考虑放宽阈值')
+                .replace(/target/g, '目标')
+                .replace(/units/g, '单位')
+                .replace(/accepted/g, '已接受')
+                .replace(/so far/g, '到目前为止');
+        }
+        recommendationText.textContent = recommendationDisplay;
 
         if (data.should_relax) {
             relaxBtn.style.display = 'inline-block';
@@ -471,7 +590,7 @@ class RentalCalculator {
     showLoading(buttonId) {
         const button = document.getElementById(buttonId);
         button.disabled = true;
-        button.textContent = 'Calculating...';
+        button.textContent = window.i18n ? window.i18n.t('calculating') : 'Calculating...';
         button.classList.add('loading');
         button.style.opacity = '0.7';
         
@@ -485,11 +604,11 @@ class RentalCalculator {
         button.classList.remove('loading');
         button.style.opacity = '1';
         
-        // Restore original text
+        // Restore original text using i18n
         const originalTexts = {
-            'calculate-btn': 'Calculate Threshold',
-            'check-offer': 'Check Offer',
-            'check-pacing': 'Check Pacing'
+            'calculate-btn': window.i18n ? window.i18n.t('calculate_threshold') : 'Calculate Threshold',
+            'check-offer': window.i18n ? window.i18n.t('check_offer') : 'Check Offer',
+            'check-pacing': window.i18n ? window.i18n.t('check_pacing') : 'Check Pacing'
         };
         button.textContent = originalTexts[buttonId] || 'Submit';
     }
@@ -576,7 +695,7 @@ class RentalCalculator {
         this.results = null;
 
         // Show success message
-        this.showSuccess('Form reset successfully');
+        this.showSuccess(window.i18n ? window.i18n.t('form_reset_success') : 'Form reset successfully');
     }
 }
 
