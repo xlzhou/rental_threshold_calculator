@@ -72,7 +72,8 @@ def calculate_threshold():
                 'salvage': config.s,
                 'total_arrivals': config.N,
                 'target_leftover': config.target_leftover,
-                'failure_threshold': config.failure_threshold
+                'failure_threshold': config.failure_threshold,
+                'cost_floor': config.cost_floor
             },
             'prices': data['prices'],
             'static_analysis': {
@@ -113,7 +114,7 @@ def check_offer():
             total_arrivals=config_data['total_arrivals'],
             target_leftover=config_data.get('target_leftover', 3),
             failure_threshold=config_data.get('failure_threshold', 5),
-            cost_floor=0.0  # Allow sub-cost thresholds for dynamic optimization
+            cost_floor=config_data.get('cost_floor', 0.0)
         )
         
         price_dist = PriceDistribution(data['prices'])
@@ -130,7 +131,7 @@ def check_offer():
             # No inventory
             accept, rationale, margin = False, f"Reject: No inventory remaining", 0.0
         else:
-            # Recreate configuration and calculator with flexible cost floor
+            # Recreate configuration and calculator with actual cost floor
             config_data = data['config']
             config = RentalConfig(
                 X=config_data['inventory'],
@@ -140,7 +141,7 @@ def check_offer():
                 total_arrivals=config_data['total_arrivals'],
                 target_leftover=config_data.get('target_leftover', 3),
                 failure_threshold=config_data.get('failure_threshold', 5),
-                cost_floor=0.0  # Allow sub-cost acceptance for dynamic optimization
+                cost_floor=config_data.get('cost_floor', 0.0)
             )
             
             price_dist = PriceDistribution(data['prices'])
@@ -181,7 +182,7 @@ def get_dynamic_threshold():
             total_arrivals=config_data['total_arrivals'],
             target_leftover=config_data.get('target_leftover', 3),
             failure_threshold=config_data.get('failure_threshold', 5),
-            cost_floor=0.0  # Allow sub-cost thresholds for dynamic optimization
+            cost_floor=config_data.get('cost_floor', 0.0)
         )
         
         price_dist = PriceDistribution(data['prices'])
