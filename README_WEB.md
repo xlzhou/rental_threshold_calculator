@@ -134,3 +134,12 @@ rental_threshold_calculator/
 - All calculations are performed server-side for security
 - File uploads are temporarily stored and cleaned up automatically
 
+## Arrival Model (DP)
+
+- The web app's dynamic programming uses a per-period Bernoulli arrival model.
+- Arrival probability per period: p_arrival = 1 − exp(−λ).
+- λ comes from the UI "Arrival Rate" field; if using total arrivals instead, it is mapped as λ = N/T.
+- Bellman update mixes no-arrival and arrival branches:
+  V_t(x) = (1 − p_arrival)·V_{t+1}(x) + p_arrival·E_p[max{p − c + V_{t+1}(x−1), V_{t+1}(x)}].
+- One price draw is considered only when an arrival occurs; otherwise inventory carries forward unchanged.
+- Static analysis uses expected total arrivals N directly, while DP uses per-period arrival probability. For large arrival rates, p_arrival ≈ 1 (≈ one offer per period).

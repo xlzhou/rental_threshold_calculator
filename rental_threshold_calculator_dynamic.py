@@ -210,6 +210,16 @@ class RentalThresholdCalculator:
         T, X = self.config.T, self.config.X
         s = self.config.s
         
+        # Map arrival intensity (per period) to a single-offer arrival probability per period.
+        # If arrival_rate not provided, infer from total arrivals over T.
+        # Use Poisson assumption: p_arrival = 1 - exp(-lambda).
+        if self.config.arrival_rate is not None:
+            lam = float(self.config.arrival_rate)
+        else:
+            # Derive per-period rate from total arrivals
+            lam = float(self.config.N) / float(max(T, 1))
+        p_arrival = 1.0 - math.exp(-max(lam, 0.0))
+        
         # Initialize value function and bid prices
         V = {}  # V_t(x)
         bid_prices = {}  # b_t(x) = V_t(x) - V_t(x-1)
@@ -226,24 +236,18 @@ class RentalThresholdCalculator:
                     V[(t, x)] = V[(t + 1, x)]
                     bid_prices[(t, x)] = float('inf')  # Never accept
                 else:
-                    # Compute expected value over price distribution
-                    expected_value = 0.0
-                    
+                    # Compute expected value considering probability of no arrival
+                    # If no arrival: carry value forward unchanged.
+                    # If arrival: observe a single price draw from empirical distribution and decide.
+                    # E[V] = (1 - p_arrival) * V_{t+1}(x) + p_arrival * E_p[max{p - c + V_{t+1}(x-1), V_{t+1}(x)}]
+                    ev_given_arrival = 0.0
+                    # Bid price based on future-state marginal value
+                    bid_price = V[(t + 1, x)] - V[(t + 1, x - 1)]
                     for price, prob in zip(self.price_dist.prices, self.price_dist.probabilities):
-                        # Bid price: marginal value of selling one unit
-                        bid_price = V[(t + 1, x)] - V[(t + 1, x - 1)]
-                        
-                        if price >= bid_price:
-                            # Accept: get price - cost + future value with x-1
-                            accept_value = price - self.config.c + V[(t + 1, x - 1)]
-                        else:
-                            # Reject: keep current inventory
-                            accept_value = V[(t + 1, x)]
-                        
-                        # Take maximum of accept/reject
+                        accept_value = price - self.config.c + V[(t + 1, x - 1)] if price >= bid_price else V[(t + 1, x)]
                         reject_value = V[(t + 1, x)]
-                        expected_value += prob * max(accept_value, reject_value)
-                    
+                        ev_given_arrival += prob * max(accept_value, reject_value)
+                    expected_value = (1.0 - p_arrival) * V[(t + 1, x)] + p_arrival * ev_given_arrival
                     V[(t, x)] = expected_value
                     bid_prices[(t, x)] = V[(t, x)] - V[(t, x - 1)] if x > 0 else float('inf')
         

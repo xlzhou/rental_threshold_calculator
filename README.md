@@ -114,6 +114,14 @@ python3 rental_threshold_calculator_dynamic.py \
 3. Derives bid prices b_t(x) = V_t(x) - V_t(x-1)
 4. Policy: accept if price ≥ cost + bid_price
 
+### Arrival Model (DP)
+- Per-period arrivals are modeled as a Bernoulli process with probability p_arrival = 1 − exp(−λ).
+- λ is taken from `--arrival-rate` when provided; otherwise λ = N/T using `--total-arrivals` (N) over T periods.
+- DP state update mixes “no-arrival” and “arrival” branches:
+  V_t(x) = (1 − p_arrival)·V_{t+1}(x) + p_arrival·E_p[max{p − c + V_{t+1}(x−1), V_{t+1}(x)}].
+- Exactly one price draw is considered per period when an arrival occurs; if no arrival, inventory carries over unchanged.
+- Static analysis uses expected total arrivals N directly; DP uses per-period arrival probability. For very large `arrival-rate`, p_arrival ≈ 1 and DP behaves like “one offer every period”.
+
 ### Penalty Function Φ(L)
 - Φ(L) = 0 for L ≤ 3
 - Φ(L) = α(L-3)² for 3 < L ≤ 5  

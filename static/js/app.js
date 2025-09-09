@@ -6,6 +6,12 @@ class RentalCalculator {
         this.initializeI18n();
     }
 
+    getCurrencySymbol() {
+        // Return appropriate currency symbol based on language
+        const isZh = window.i18n && window.i18n.getCurrentLanguage() === 'zh';
+        return isZh ? '¥' : '$';
+    }
+
     initializeEventListeners() {
         // Main calculation button
         document.getElementById('calculate-btn').addEventListener('click', (e) => {
@@ -95,9 +101,10 @@ class RentalCalculator {
             checkPacingBtn.textContent = window.i18n.t('check_pacing');
         }
 
-        // Update decision guidance if results are available
+        // Update currency symbols in results if available
         if (this.results) {
-            this.displayDecisionGuidance(this.results);
+            this.displayResults(this.results);
+            this.updateDynamicThreshold();
         }
     }
 
@@ -267,9 +274,10 @@ class RentalCalculator {
             
             if (response.ok) {
                 // Update the displayed threshold
-                document.getElementById('operational-cutoff').textContent = `$${data.new_threshold.toFixed(2)}`;
+                const currency = this.getCurrencySymbol();
+                document.getElementById('operational-cutoff').textContent = `${currency}${data.new_threshold.toFixed(2)}`;
                 this.results.static_analysis.operational_cutoff = data.new_threshold;
-                this.showSuccess('Threshold relaxed to $' + data.new_threshold.toFixed(2));
+                this.showSuccess('Threshold relaxed to ' + currency + data.new_threshold.toFixed(2));
             } else {
                 this.showError('Failed to relax threshold: ' + (data.error || 'Unknown error'));
             }
@@ -327,19 +335,20 @@ class RentalCalculator {
         const results = data.static_analysis;
         const dynamic = data.dynamic_analysis;
         const config = data.config;
+        const currency = this.getCurrencySymbol();
         
         // Static analysis results
-        document.getElementById('optimal-threshold').textContent = `$${results.threshold.toFixed(2)}`;
-        document.getElementById('operational-cutoff').textContent = `$${results.operational_cutoff.toFixed(2)}`;
+        document.getElementById('optimal-threshold').textContent = `${currency}${results.threshold.toFixed(2)}`;
+        document.getElementById('operational-cutoff').textContent = `${currency}${results.operational_cutoff.toFixed(2)}`;
         document.getElementById('expected-accepts').textContent = results.expected_accepts.toFixed(1);
         document.getElementById('expected-leftover').textContent = results.expected_leftover.toFixed(1);
-        document.getElementById('conditional-mean-price').textContent = `$${results.conditional_mean_price.toFixed(2)}`;
-        document.getElementById('expected-profit').textContent = `$${results.expected_profit.toFixed(2)}`;
+        document.getElementById('conditional-mean-price').textContent = `${currency}${results.conditional_mean_price.toFixed(2)}`;
+        document.getElementById('expected-profit').textContent = `${currency}${results.expected_profit.toFixed(2)}`;
         
         // Dynamic analysis results
-        document.getElementById('initial-value').textContent = `$${dynamic.initial_value.toFixed(2)}`;
-        document.getElementById('initial-bid-price').textContent = `$${dynamic.initial_bid_price.toFixed(2)}`;
-        document.getElementById('initial-threshold').textContent = `$${dynamic.initial_threshold.toFixed(2)}`;
+        document.getElementById('initial-value').textContent = `${currency}${dynamic.initial_value.toFixed(2)}`;
+        document.getElementById('initial-bid-price').textContent = `${currency}${dynamic.initial_bid_price.toFixed(2)}`;
+        document.getElementById('initial-threshold').textContent = `${currency}${dynamic.initial_threshold.toFixed(2)}`;
         
         // Decision guidance
         this.displayDecisionGuidance(data);
@@ -358,16 +367,17 @@ class RentalCalculator {
         const targetSellThrough = config.inventory - config.target_leftover;
         const pacingPeriod = Math.floor(config.periods / 2);
         
-        // Get current language
+        // Get current language and currency symbol
         const isZh = window.i18n && window.i18n.getCurrentLanguage() === 'zh';
+        const currency = this.getCurrencySymbol();
         
         const guidance = [
             isZh ? 
-                `• 接受报价 ≥ $${results.operational_cutoff.toFixed(2)}（静态阈值）` :
-                `• Accept offers ≥ $${results.operational_cutoff.toFixed(2)} (static threshold)`,
+                `• 接受报价 ≥ ${currency}${results.operational_cutoff.toFixed(2)}（静态阈值）` :
+                `• Accept offers ≥ ${currency}${results.operational_cutoff.toFixed(2)} (static threshold)`,
             isZh ?
-                `• 接受报价 ≥ $${dynamic.initial_threshold.toFixed(2)}（动态阈值，t=0）` :
-                `• Accept offers ≥ $${dynamic.initial_threshold.toFixed(2)} (dynamic threshold, t=0)`,
+                `• 接受报价 ≥ ${currency}${dynamic.initial_threshold.toFixed(2)}（动态阈值，t=0）` :
+                `• Accept offers ≥ ${currency}${dynamic.initial_threshold.toFixed(2)} (dynamic threshold, t=0)`,
             isZh ?
                 `• 目标销售量：${targetSellThrough} 个单位` :
                 `• Target sell-through: ${targetSellThrough} units`,
@@ -412,14 +422,15 @@ class RentalCalculator {
             const data = await response.json();
             
             if (response.ok) {
+                const currency = this.getCurrencySymbol();
                 if (data.is_end_condition) {
                     document.getElementById('current-threshold').textContent = 'No offers accepted';
                     document.getElementById('current-threshold').style.color = '#e74c3c';
                 } else {
-                    document.getElementById('current-threshold').textContent = `$${data.dynamic_threshold.toFixed(2)}K`;
+                    document.getElementById('current-threshold').textContent = `${currency}${data.dynamic_threshold.toFixed(2)}K`;
                     document.getElementById('current-threshold').style.color = '#3498db';
                 }
-                document.getElementById('static-comparison').textContent = `$${data.static_threshold.toFixed(2)}K`;
+                document.getElementById('static-comparison').textContent = `${currency}${data.static_threshold.toFixed(2)}K`;
                 
                 // Update the info text with the message
                 const infoElement = document.querySelector('.threshold-info p:last-child small');
@@ -470,8 +481,9 @@ class RentalCalculator {
         rationaleText.textContent = rationaleDisplay;
         
         // Translate margin text
+        const currency = this.getCurrencySymbol();
         const marginDisplay = data.margin > 0 ? 
-            (isZh ? `利润：$${data.margin.toFixed(2)}` : `Margin: $${data.margin.toFixed(2)}`) : '';
+            (isZh ? `利润：${currency}${data.margin.toFixed(2)}` : `Margin: ${currency}${data.margin.toFixed(2)}`) : '';
         marginText.textContent = marginDisplay;
 
         // The container is already visible, no need to show individually

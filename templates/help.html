@@ -198,6 +198,28 @@
         </div>
 
         <div class="help-section">
+            <h2>🚚 Arrival Model (DP)</h2>
+            <p><strong>English:</strong> The dynamic programming model treats arrivals as a per-period Bernoulli event with probability p_arrival = 1 − exp(−λ). The rate λ comes from the "Arrival Rate" field; if total arrivals N over T periods are known, λ = N/T. Each period combines a no-arrival branch and an arrival branch in the Bellman update:</p>
+            <div class="example-box">
+                V_t(x) = (1 − p_arrival) · V_{t+1}(x) + p_arrival · E_p[ max{ p − c + V_{t+1}(x−1), V_{t+1}(x) } ]
+            </div>
+            <ul>
+                <li>One price draw is considered only when an arrival occurs.</li>
+                <li>If no arrival, inventory carries forward unchanged.</li>
+                <li>Static analysis uses expected total arrivals N directly; DP uses per-period arrival probability. For large arrival rates, p_arrival ≈ 1 (≈ one offer per period).</li>
+            </ul>
+            <p><strong>中文：</strong> 动态规划将“客户到达”建模为每个周期一次的伯努利事件，概率为 p_arrival = 1 − exp(−λ)。λ 来自“到达率”输入；若给出总到达 N 与周期数 T，则 λ = N/T。贝尔曼方程将“无到达”和“有到达”两种情况加权：</p>
+            <div class="example-box">
+                V_t(x) = (1 − p_arrival) · V_{t+1}(x) + p_arrival · E_p[ max{ p − c + V_{t+1}(x−1), V_{t+1}(x) } ]
+            </div>
+            <ul>
+                <li>只有在“有到达”时才进行一次价格抽样与接受/拒绝决策。</li>
+                <li>若“无到达”，库存直接结转到下一周期。</li>
+                <li>静态分析直接使用总到达 N；DP 使用每周期到达概率。到达率较大时，p_arrival ≈ 1（近似每周期都有一次报价）。</li>
+            </ul>
+        </div>
+
+        <div class="help-section">
             <h2>💡 Example Scenario</h2>
             <div class="example-box">
                 <strong>Server Rental Business:</strong><br><br>
