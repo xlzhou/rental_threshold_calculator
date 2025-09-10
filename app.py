@@ -53,7 +53,7 @@ def calculate_threshold():
         prices_in = list(data['prices'])
         if unit == 'per_month':
             c = c / days_per_month
-            cost_floor_input = cost_floor_input / days_per_month if cost_floor_input is not None else None
+            cost_floor_input = cost_floor_input / days_per_month
             prices_in = [p / days_per_month for p in prices_in]
 
         config = RentalConfig(

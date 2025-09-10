@@ -58,15 +58,21 @@ class RentalCalculator {
         // Live offer input changes
         document.getElementById('current-period').addEventListener('input', () => {
             this.updateDynamicThreshold();
+            this.autoRecalculateDecision();
         });
         
         document.getElementById('current-inventory').addEventListener('input', () => {
             this.updateDynamicThreshold();
+            this.autoRecalculateDecision();
         });
 
         const durationEl = document.getElementById('duration');
         if (durationEl) {
-            durationEl.addEventListener('input', () => this.updateDynamicThreshold());
+            durationEl.addEventListener('input', () => {
+                this.updateDynamicThreshold();
+                // Auto-recalculate decision if there's a previous offer
+                this.autoRecalculateDecision();
+            });
         }
 
         // Language selector
@@ -415,6 +421,15 @@ class RentalCalculator {
         guidanceList.innerHTML = guidance.map(item => `<li>${item}</li>`).join('');
     }
 
+    autoRecalculateDecision() {
+        // Only recalculate if there's a valid offer price entered
+        const offerPrice = parseFloat(document.getElementById('offer-price').value);
+        if (!isNaN(offerPrice) && offerPrice > 0 && this.results) {
+            // Automatically trigger offer check
+            this.checkOffer();
+        }
+    }
+
     async updateDynamicThreshold() {
         if (!this.results) return;
 
@@ -450,7 +465,7 @@ class RentalCalculator {
                     document.getElementById('current-threshold').textContent = `${currency}${(data.sobp_per_period_threshold * scale).toFixed(2)}`;
                     document.getElementById('current-threshold').style.color = '#3498db';
                 }
-                document.getElementById('static-comparison').textContent = `${currency}${(data.static_threshold * scale).toFixed(2)}`;
+                document.getElementById('static-comparison').textContent = `${currency}${(data.static_threshold * scale).toFixed(2)}/month`;
                 const sobpPer = document.getElementById('sobp-per-threshold');
                 const sobpTot = document.getElementById('sobp-total-threshold');
                 if (sobpPer) sobpPer.textContent = `${currency}${(data.sobp_per_period_threshold * scale).toFixed(2)} (D=${data.duration})`;

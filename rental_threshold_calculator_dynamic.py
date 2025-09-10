@@ -262,24 +262,80 @@ class RentalThresholdCalculator:
             bid_prices=bid_prices,
             policy=policy
         )
+
+    def _ensure_dynamic(self) -> DynamicResult:
+        """Ensure dynamic program is computed and return it."""
+        return self.compute_dynamic_program()
+
+    def compute_sobp_threshold(self, duration: int, current_time: int, current_inventory: int,
+                                return_total: bool = False) -> Tuple[float, float]:
+        """Compute SOBP-based thresholds for a multi-period rental of length `duration`.
+
+        Returns a tuple: (per_period_threshold, total_threshold).
+        For duration == 1, per_period_threshold reduces to the standard dynamic threshold.
+        """
+        if duration <= 0:
+            duration = 1
+        dynamic = self._ensure_dynamic()
+        T = self.config.T
+        X = self.config.X
+        x = max(1, min(current_inventory, X))
+        t = max(0, min(current_time, T - 1))
+
+        # Sum of bid prices over occupancy window
+        sum_b = 0.0
+        # Shadow bid price beyond horizon: use last available bid or 0
+        shadow_b = dynamic.bid_prices.get((T - 1, x), 0.0)
+        for i in range(duration):
+            tt = t + i
+            if tt <= T - 1:
+                b = dynamic.bid_prices.get((tt, x), 0.0)
+            else:
+                b = shadow_b
+            if math.isinf(b):
+                b = 0.0
+            sum_b += b
+
+        per_period_threshold = max(self.config.cost_floor, self.config.c + (sum_b / duration))
+        total_threshold_raw = self.config.c * duration + sum_b
+        total_threshold = max(self.config.cost_floor * duration, total_threshold_raw)
+        return per_period_threshold, total_threshold
     
     def make_decision(self, price: float, current_time: int = 0, current_inventory: int = None, 
-                     use_dynamic: bool = True) -> Tuple[bool, str, float]:
+                     use_dynamic: bool = True, duration: int = 1, offer_type: str = 'per_period') -> Tuple[bool, str, float]:
         """Make accept/reject decision for a single offer."""
         if current_inventory is None:
             current_inventory = self.config.X
         
         if use_dynamic:
-            # Use dynamic programming policy
-            dynamic_result = self.compute_dynamic_program()
-            threshold = dynamic_result.policy.get((current_time, current_inventory), float('inf'))
-            
-            if price >= threshold:
-                margin = price - self.config.c
-                rationale = f"Accept: price {price:.2f} ≥ threshold {threshold:.2f} (margin: {margin:.2f})"
+            # Use SOBP for multi-period (and D=1 reduces to standard)
+            per_thr, total_thr = self.compute_sobp_threshold(duration, current_time, current_inventory)
+            if offer_type == 'total':
+                threshold = total_thr
+                comp_price = price
+                cost_basis = self.config.c * duration
+            else:
+                threshold = per_thr
+                comp_price = price
+                cost_basis = self.config.c
+            if comp_price >= threshold:
+                margin = comp_price - cost_basis
+                if offer_type == 'total':
+                    rationale = (
+                        f"Accept: total {comp_price:.2f} ≥ threshold {threshold:.2f} "
+                        f"(duration={duration}, margin: {margin:.2f})"
+                    )
+                else:
+                    rationale = (
+                        f"Accept: per-period {comp_price:.2f} ≥ threshold {threshold:.2f} "
+                        f"(D={duration}, margin: {margin:.2f}/period)"
+                    )
                 return True, rationale, margin
             else:
-                rationale = f"Reject: price {price:.2f} < threshold {threshold:.2f}"
+                if offer_type == 'total':
+                    rationale = f"Reject: total {comp_price:.2f} < threshold {threshold:.2f} (D={duration})"
+                else:
+                    rationale = f"Reject: per-period {comp_price:.2f} < threshold {threshold:.2f} (D={duration})"
                 return False, rationale, 0.0
         else:
             # Use static threshold

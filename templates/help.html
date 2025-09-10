@@ -98,9 +98,9 @@
                     <dd>The number of units (servers) you have available at the beginning</dd>
                     <dd>起始的库存数量，这里指的是待租赁的服务器台数</dd>
 
-                    <dt>Number of Periods (T)</dt>
-                    <dd>The time horizon for your rental business (e.g., 30 days)</dd>
-                    <dd>指的是整个周期，如果你按月测算，那就是30天，如果是按年测算那就是365天</dd>
+                    <dt>Horizon Length (days)</dt>
+                    <dd>Total days in the planning horizon (e.g., 30 days)</dd>
+                    <dd>销售周期内总天数，例如：月度规划时通常取 30 天；年度规划可取 365 天</dd>
 
                     <dt>Unit Cost (c)</dt>
                     <dd>The cost per unit in thousands. This is your break-even point</dd>
@@ -220,11 +220,42 @@
         </div>
 
         <div class="help-section">
+            <h2>🧮 Variable Duration (SOBP)</h2>
+            <p><strong>English:</strong> For a rental with duration D periods, we use a Sum of Bid Prices (SOBP) heuristic to account for multi-period occupancy. The per-period threshold is:</p>
+            <div class="example-box">
+                per-threshold = max(cost_floor, c + (Σ b_{t+i}(x))/D)
+            </div>
+            <p>The total-price threshold is:</p>
+            <div class="example-box">
+                total-threshold = max(D·cost_floor, D·c + Σ b_{t+i}(x))
+            </div>
+            <ul>
+                <li>If D extends beyond the horizon, a terminal shadow bid is applied for the extra periods.</li>
+                <li>Offer type can be per-period or total. The UI shows both thresholds.</li>
+            </ul>
+            <p><strong>中文：</strong> 对于租期 D 个周期的报价，使用“位移成本求和（SOBP）”近似计算阈值，显式计入多期占用的机会成本：</p>
+            <div class="example-box">
+                每期阈值 = max(cost_floor, c + (Σ b_{t+i}(x))/D)<br>
+                整单阈值 = max(D·cost_floor, D·c + Σ b_{t+i}(x))
+            </div>
+            <ul>
+                <li>若 D 超出当前视窗，用“终端影子价”近似超出部分的边际价值。</li>
+                <li>支持“按期价格/整单总价”两种口径，并在界面中展示两种阈值。</li>
+            </ul>
+        </div>
+
+        <div class="help-section">
+            <h2>⏱️ Time Granularity Tips</h2>
+            <p><strong>English:</strong> If expected total offers N in a month greatly exceeds T, either refine the time step (increase T so per-period arrival probability p ≈ 1) or consider a future upgrade to allow multiple arrivals per period.</p>
+            <p><strong>中文：</strong> 如果月内总报价 N 远大于 T，建议细化时间粒度（增大 T，使每期 p≈1），或后续启用“期内多到达”的扩展模型。</p>
+        </div>
+
+        <div class="help-section">
             <h2>💡 Example Scenario</h2>
             <div class="example-box">
                 <strong>Server Rental Business:</strong><br><br>
                 • Starting Inventory: 10 servers<br>
-                • Number of Periods: 30 days<br>
+                • Horizon Length: 30 days<br>
                 • Unit Cost: $60K per server<br>
                 • Arrival Rate: 0.8 customers/day<br>
                 • Historical Prices: $65K, $64K, $60K, $59K, $55K<br><br>

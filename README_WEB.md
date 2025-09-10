@@ -143,3 +143,17 @@ rental_threshold_calculator/
   V_t(x) = (1 − p_arrival)·V_{t+1}(x) + p_arrival·E_p[max{p − c + V_{t+1}(x−1), V_{t+1}(x)}].
 - One price draw is considered only when an arrival occurs; otherwise inventory carries forward unchanged.
 - Static analysis uses expected total arrivals N directly, while DP uses per-period arrival probability. For large arrival rates, p_arrival ≈ 1 (≈ one offer per period).
+
+## Variable Duration (SOBP)
+
+- For rentals spanning D periods, the app uses a Sum of Bid Prices (SOBP) heuristic to incorporate multi-period opportunity cost.
+- Per-period threshold: per = max(cost_floor, c + (Σ b_{t+i}(x))/D)
+- Total-price threshold: total = max(D·cost_floor, D·c + Σ b_{t+i}(x))
+- If D crosses the horizon, a terminal shadow bid is used for extra periods.
+- UI supports per-period vs total offers and shows both thresholds.
+
+## Time Granularity Tips
+
+- If expected total offers within a month N >> T, either:
+  - Increase T (finer periods) so per-period arrival probability p ≈ 1; or
+  - Plan for a future “multi-arrival per period” upgrade (compound Poisson with a small K_max approximation).

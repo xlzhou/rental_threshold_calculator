@@ -122,6 +122,15 @@ python3 rental_threshold_calculator_dynamic.py \
 - Exactly one price draw is considered per period when an arrival occurs; if no arrival, inventory carries over unchanged.
 - Static analysis uses expected total arrivals N directly; DP uses per-period arrival probability. For very large `arrival-rate`, p_arrival ≈ 1 and DP behaves like “one offer every period”.
 
+### Variable Duration via SOBP
+- For a rental lasting D periods, the DP’s bid prices b_t(x) are aggregated to approximate multi-period opportunity cost.
+- Per-period threshold: `per = max(cost_floor, c + (Σ b_{t+i}(x))/D)`
+- Total threshold: `total = max(D·cost_floor, D·c + Σ b_{t+i}(x))`
+- When `t + D - 1` exceeds the horizon, a terminal shadow bid is applied for the extra periods.
+
+### Time Granularity Tips
+- If expected total offers N >> T, either increase T (finer periods) so `p_arrival ≈ 1`, or consider a future multi-arrival-per-period extension (compound Poisson with small K_max approximation).
+
 ### Penalty Function Φ(L)
 - Φ(L) = 0 for L ≤ 3
 - Φ(L) = α(L-3)² for 3 < L ≤ 5  
