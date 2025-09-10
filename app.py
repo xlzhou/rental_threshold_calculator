@@ -125,6 +125,7 @@ def check_offer():
         # Use unit information from original calculation
         unit = config_data.get('unit', 'per_day')
         days_per_month = int(config_data.get('days_per_month', 30) or 30)
+        # Unit conversion working correctly now
 
         config = RentalConfig(
             X=config_data['inventory'],
@@ -164,7 +165,11 @@ def check_offer():
                 cost_floor=config_data.get('cost_floor', 0.0)
             )
             
-            price_dist = PriceDistribution(data['prices'])
+            # Convert prices to per-day if needed (same as get-dynamic-threshold API)
+            prices_in = data['prices']
+            if unit == 'per_month':
+                prices_in = [p / days_per_month for p in prices_in]
+            price_dist = PriceDistribution(prices_in)
             calculator = RentalThresholdCalculator(config, price_dist)
             
             # Make decision based on user choice
@@ -190,27 +195,21 @@ def check_offer():
             # Convert rationale back to user-friendly units for display
             if unit == 'per_month' and offer_type == 'per_period':
                 # Scale back the rationale values for per-month display
-                display_rationale = rationale
-                # Replace per-day values in rationale with per-month equivalents
                 import re
-                # Find price and threshold values in the rationale
-                price_match = re.search(r'(\d+\.\d+) ≥ threshold (\d+\.\d+)', rationale)
-                if not price_match:
-                    price_match = re.search(r'(\d+\.\d+) < threshold (\d+\.\d+)', rationale)
-                
-                if price_match:
-                    per_day_price = float(price_match.group(1))
-                    per_day_threshold = float(price_match.group(2))
+                # Find price and threshold values in the rationale and replace them
+                def replace_values(match):
+                    per_day_price = float(match.group(1))
+                    operator = match.group(2)
+                    per_day_threshold = float(match.group(3))
                     per_month_price = per_day_price * days_per_month
                     per_month_threshold = per_day_threshold * days_per_month
                     
-                    # Replace the values in the rationale
-                    display_rationale = rationale.replace(
-                        f"{per_day_price:.2f}", f"{per_month_price:.2f}"
-                    ).replace(
-                        f"{per_day_threshold:.2f}", f"{per_month_threshold:.2f}"
-                    )
-                rationale = display_rationale
+                    # Return the replacement with same format as original
+                    return f"{per_month_price:.2f} {operator} threshold {per_month_threshold:.2f}"
+                
+                # Apply the replacement
+                rationale = re.sub(r'(\d+\.\d+) (≥|<) threshold (\d+\.\d+)', 
+                                 replace_values, rationale)
                 
             # Scale margin for display if needed
             if unit == 'per_month' and offer_type == 'per_period':

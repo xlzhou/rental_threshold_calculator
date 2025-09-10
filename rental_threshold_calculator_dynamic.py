@@ -165,6 +165,7 @@ class RentalThresholdCalculator:
             config.penalty_alpha,
             config.penalty_beta
         )
+        self._dynamic_result = None  # Cache for dynamic program
     
     def compute_static_threshold(self) -> ThresholdResult:
         """Algorithm A1: Static cutoff selection."""
@@ -265,7 +266,9 @@ class RentalThresholdCalculator:
 
     def _ensure_dynamic(self) -> DynamicResult:
         """Ensure dynamic program is computed and return it."""
-        return self.compute_dynamic_program()
+        if self._dynamic_result is None:
+            self._dynamic_result = self.compute_dynamic_program()
+        return self._dynamic_result
 
     def compute_sobp_threshold(self, duration: int, current_time: int, current_inventory: int,
                                 return_total: bool = False) -> Tuple[float, float]:
@@ -299,6 +302,9 @@ class RentalThresholdCalculator:
         per_period_threshold = max(self.config.cost_floor, self.config.c + (sum_b / duration))
         total_threshold_raw = self.config.c * duration + sum_b
         total_threshold = max(self.config.cost_floor * duration, total_threshold_raw)
+        
+        # Dynamic program now cached - consistent results
+        
         return per_period_threshold, total_threshold
     
     def make_decision(self, price: float, current_time: int = 0, current_inventory: int = None, 
