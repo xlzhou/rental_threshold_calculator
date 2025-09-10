@@ -64,6 +64,11 @@ class RentalCalculator {
             this.updateDynamicThreshold();
         });
 
+        const durationEl = document.getElementById('duration');
+        if (durationEl) {
+            durationEl.addEventListener('input', () => this.updateDynamicThreshold());
+        }
+
         // Language selector
         document.getElementById('language-selector').addEventListener('change', (e) => {
             this.changeLanguage(e.target.value);
@@ -155,6 +160,8 @@ class RentalCalculator {
         const currentPeriod = parseInt(document.getElementById('current-period').value) || 0;
         const currentInventory = parseInt(document.getElementById('current-inventory').value) || this.results.config.inventory;
         const thresholdType = document.getElementById('threshold-type').value;
+        const duration = parseInt(document.getElementById('duration').value) || 1;
+        const offerType = document.getElementById('offer-type').value || 'per_period';
 
         if (isNaN(offerPrice)) {
             this.showError('Please enter a valid offer price');
@@ -175,7 +182,9 @@ class RentalCalculator {
                     offer_price: offerPrice,
                     current_period: currentPeriod,
                     current_inventory: currentInventory,
-                    use_dynamic: thresholdType === 'dynamic'
+                    use_dynamic: thresholdType === 'dynamic',
+                    duration: duration,
+                    offer_type: offerType
                 })
             });
 
@@ -183,6 +192,8 @@ class RentalCalculator {
             
             if (response.ok) {
                 this.displayOfferResult(data);
+                // Update thresholds (SOBP may depend on duration)
+                this.updateDynamicThreshold();
             } else {
                 this.showError('Offer check failed: ' + (data.error || 'Unknown error'));
             }
@@ -275,9 +286,10 @@ class RentalCalculator {
             if (response.ok) {
                 // Update the displayed threshold
                 const currency = this.getCurrencySymbol();
-                document.getElementById('operational-cutoff').textContent = `${currency}${data.new_threshold.toFixed(2)}`;
+                const scale = (this.results.unit === 'per_month') ? (this.results.days_per_month || 30) : 1;
+                document.getElementById('operational-cutoff').textContent = `${currency}${(data.new_threshold * scale).toFixed(2)}`;
                 this.results.static_analysis.operational_cutoff = data.new_threshold;
-                this.showSuccess('Threshold relaxed to ' + currency + data.new_threshold.toFixed(2));
+                this.showSuccess('Threshold relaxed to ' + currency + (data.new_threshold * scale).toFixed(2));
             } else {
                 this.showError('Failed to relax threshold: ' + (data.error || 'Unknown error'));
             }
@@ -293,6 +305,8 @@ class RentalCalculator {
             cost: parseFloat(document.getElementById('cost').value),
             salvage: parseFloat(document.getElementById('salvage').value) || 0,
             arrival_rate: parseFloat(document.getElementById('arrival-rate').value),
+            unit: (document.getElementById('price-unit') && document.getElementById('price-unit').value) || 'per_day',
+            days_per_month: parseInt(document.getElementById('days-per-month')?.value) || 30,
             target_leftover: parseInt(document.getElementById('target-leftover').value) || 3,
             failure_threshold: parseInt(document.getElementById('failure-threshold').value) || 5,
             cost_floor: parseFloat(document.getElementById('cost-floor').value) || null,
@@ -336,19 +350,20 @@ class RentalCalculator {
         const dynamic = data.dynamic_analysis;
         const config = data.config;
         const currency = this.getCurrencySymbol();
+        const scale = (data.unit === 'per_month') ? (data.days_per_month || 30) : 1;
         
         // Static analysis results
-        document.getElementById('optimal-threshold').textContent = `${currency}${results.threshold.toFixed(2)}`;
-        document.getElementById('operational-cutoff').textContent = `${currency}${results.operational_cutoff.toFixed(2)}`;
+        document.getElementById('optimal-threshold').textContent = `${currency}${(results.threshold * scale).toFixed(2)}`;
+        document.getElementById('operational-cutoff').textContent = `${currency}${(results.operational_cutoff * scale).toFixed(2)}`;
         document.getElementById('expected-accepts').textContent = results.expected_accepts.toFixed(1);
         document.getElementById('expected-leftover').textContent = results.expected_leftover.toFixed(1);
-        document.getElementById('conditional-mean-price').textContent = `${currency}${results.conditional_mean_price.toFixed(2)}`;
+        document.getElementById('conditional-mean-price').textContent = `${currency}${(results.conditional_mean_price * scale).toFixed(2)}`;
         document.getElementById('expected-profit').textContent = `${currency}${results.expected_profit.toFixed(2)}`;
         
         // Dynamic analysis results
         document.getElementById('initial-value').textContent = `${currency}${dynamic.initial_value.toFixed(2)}`;
-        document.getElementById('initial-bid-price').textContent = `${currency}${dynamic.initial_bid_price.toFixed(2)}`;
-        document.getElementById('initial-threshold').textContent = `${currency}${dynamic.initial_threshold.toFixed(2)}`;
+        document.getElementById('initial-bid-price').textContent = `${currency}${(dynamic.initial_bid_price * scale).toFixed(2)}`;
+        document.getElementById('initial-threshold').textContent = `${currency}${(dynamic.initial_threshold * scale).toFixed(2)}`;
         
         // Decision guidance
         this.displayDecisionGuidance(data);
@@ -370,14 +385,15 @@ class RentalCalculator {
         // Get current language and currency symbol
         const isZh = window.i18n && window.i18n.getCurrentLanguage() === 'zh';
         const currency = this.getCurrencySymbol();
+        const scale = (data.unit === 'per_month') ? (data.days_per_month || 30) : 1;
         
         const guidance = [
             isZh ? 
-                `• 接受报价 ≥ ${currency}${results.operational_cutoff.toFixed(2)}（静态阈值）` :
-                `• Accept offers ≥ ${currency}${results.operational_cutoff.toFixed(2)} (static threshold)`,
+                `• 接受报价 ≥ ${currency}${(results.operational_cutoff * scale).toFixed(2)}（静态阈值）` :
+                `• Accept offers ≥ ${currency}${(results.operational_cutoff * scale).toFixed(2)} (static threshold)`,
             isZh ?
-                `• 接受报价 ≥ ${currency}${dynamic.initial_threshold.toFixed(2)}（动态阈值，t=0）` :
-                `• Accept offers ≥ ${currency}${dynamic.initial_threshold.toFixed(2)} (dynamic threshold, t=0)`,
+                `• 接受报价 ≥ ${currency}${(dynamic.initial_threshold * scale).toFixed(2)}（动态阈值，t=0）` :
+                `• Accept offers ≥ ${currency}${(dynamic.initial_threshold * scale).toFixed(2)} (dynamic threshold, t=0)`,
             isZh ?
                 `• 目标销售量：${targetSellThrough} 个单位` :
                 `• Target sell-through: ${targetSellThrough} units`,
@@ -404,6 +420,9 @@ class RentalCalculator {
 
         const currentPeriod = parseInt(document.getElementById('current-period').value) || 0;
         const currentInventory = parseInt(document.getElementById('current-inventory').value) || this.results.config.inventory;
+        const duration = parseInt(document.getElementById('duration').value) || 1;
+        const currency = this.getCurrencySymbol();
+        const scale = (this.results.unit === 'per_month') ? (this.results.days_per_month || 30) : 1;
         
         try {
             const response = await fetch('/api/get-dynamic-threshold', {
@@ -415,22 +434,27 @@ class RentalCalculator {
                     config: this.results.config,
                     prices: this.results.prices,
                     current_period: currentPeriod,
-                    current_inventory: currentInventory
+                    current_inventory: currentInventory,
+                    duration: duration
                 })
             });
 
             const data = await response.json();
             
             if (response.ok) {
-                const currency = this.getCurrencySymbol();
                 if (data.is_end_condition) {
                     document.getElementById('current-threshold').textContent = 'No offers accepted';
                     document.getElementById('current-threshold').style.color = '#e74c3c';
                 } else {
-                    document.getElementById('current-threshold').textContent = `${currency}${data.dynamic_threshold.toFixed(2)}K`;
+                    // Display SOBP per-period threshold as the primary current threshold for the selected D
+                    document.getElementById('current-threshold').textContent = `${currency}${(data.sobp_per_period_threshold * scale).toFixed(2)}`;
                     document.getElementById('current-threshold').style.color = '#3498db';
                 }
-                document.getElementById('static-comparison').textContent = `${currency}${data.static_threshold.toFixed(2)}K`;
+                document.getElementById('static-comparison').textContent = `${currency}${(data.static_threshold * scale).toFixed(2)}`;
+                const sobpPer = document.getElementById('sobp-per-threshold');
+                const sobpTot = document.getElementById('sobp-total-threshold');
+                if (sobpPer) sobpPer.textContent = `${currency}${(data.sobp_per_period_threshold * scale).toFixed(2)} (D=${data.duration})`;
+                if (sobpTot) sobpTot.textContent = `${currency}${data.sobp_total_threshold.toFixed(2)} (D=${data.duration})`;
                 
                 // Update the info text with the message
                 const infoElement = document.querySelector('.threshold-info p:last-child small');
@@ -482,8 +506,11 @@ class RentalCalculator {
         
         // Translate margin text
         const currency = this.getCurrencySymbol();
+        const scale = (this.results && this.results.unit === 'per_month') ? (this.results.days_per_month || 30) : 1;
+        const selectedOfferType = document.getElementById('offer-type') ? document.getElementById('offer-type').value : 'per_period';
+        const marginValue = (selectedOfferType === 'per_period') ? (data.margin * scale) : data.margin;
         const marginDisplay = data.margin > 0 ? 
-            (isZh ? `利润：${currency}${data.margin.toFixed(2)}` : `Margin: ${currency}${data.margin.toFixed(2)}`) : '';
+            (isZh ? `利润：${currency}${marginValue.toFixed(2)}` : `Margin: ${currency}${marginValue.toFixed(2)}`) : '';
         marginText.textContent = marginDisplay;
 
         // The container is already visible, no need to show individually

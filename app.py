@@ -38,25 +38,37 @@ def calculate_threshold():
     try:
         data = request.get_json()
         
-        # Create configuration with flexible cost floor for dynamic programming
+        # Create configuration with cost floor (default to cost to avoid 0-threshold surprises)
         cost_floor = data.get('cost_floor')
         if cost_floor is None:
-            # Allow sub-cost acceptance for better dynamic optimization
-            cost_floor = 0.0  # Or even negative: -float('inf') for no floor
+            cost_floor = data['cost']
         
+        # Unit handling
+        unit = data.get('unit', 'per_day')
+        days_per_month = int(data.get('days_per_month', 30) or 30)
+
+        # Convert prices/costs to per-day if inputs are monthly
+        c = data['cost']
+        cost_floor_input = cost_floor
+        prices_in = list(data['prices'])
+        if unit == 'per_month':
+            c = c / days_per_month
+            cost_floor_input = cost_floor_input / days_per_month if cost_floor_input is not None else None
+            prices_in = [p / days_per_month for p in prices_in]
+
         config = RentalConfig(
             X=data['inventory'],
             T=data['periods'],
-            c=data['cost'],
+            c=c,
             s=data.get('salvage', 0.0),
             arrival_rate=data['arrival_rate'],
             target_leftover=data.get('target_leftover', 3),
             failure_threshold=data.get('failure_threshold', 5),
-            cost_floor=cost_floor
+            cost_floor=cost_floor_input
         )
         
         # Create price distribution
-        price_dist = PriceDistribution(data['prices'])
+        price_dist = PriceDistribution(prices_in)
         
         # Create calculator and compute results
         calculator = RentalThresholdCalculator(config, price_dist)
@@ -90,7 +102,9 @@ def calculate_threshold():
                 'initial_value': dynamic_result.value_function.get((0, config.X), 0),
                 'initial_bid_price': dynamic_result.bid_prices.get((0, config.X), 0),
                 'initial_threshold': dynamic_result.policy.get((0, config.X), 0)
-            }
+            },
+            'unit': unit,
+            'days_per_month': days_per_month
         }
         
         return jsonify(response)
@@ -106,6 +120,10 @@ def check_offer():
         
         # Recreate configuration and calculator
         config_data = data['config']
+        # Use unit information from original calculation
+        unit = config_data.get('unit', 'per_day')
+        days_per_month = int(config_data.get('days_per_month', 30) or 30)
+
         config = RentalConfig(
             X=config_data['inventory'],
             T=config_data['periods'],
@@ -149,11 +167,19 @@ def check_offer():
             
             # Make decision based on user choice
             use_dynamic = data.get('use_dynamic', True)  # Default to dynamic
+            # Convert per-period offer to per-day if needed
+            offer_price = data['offer_price']
+            offer_type = data.get('offer_type', 'per_period')
+            if offer_type == 'per_period' and unit == 'per_month':
+                offer_price = offer_price / days_per_month
+
             accept, rationale, margin = calculator.make_decision(
-                data['offer_price'],
+                offer_price,
                 current_period,
                 current_inventory,
-                use_dynamic=use_dynamic
+                use_dynamic=use_dynamic,
+                duration=data.get('duration', 1),
+                offer_type=offer_type
             )
         
         return jsonify({
@@ -174,6 +200,9 @@ def get_dynamic_threshold():
         
         # Recreate configuration and calculator
         config_data = data['config']
+        unit = config_data.get('unit', 'per_day')
+        days_per_month = int(config_data.get('days_per_month', 30) or 30)
+
         config = RentalConfig(
             X=config_data['inventory'],
             T=config_data['periods'],
@@ -185,7 +214,11 @@ def get_dynamic_threshold():
             cost_floor=config_data.get('cost_floor', 0.0)
         )
         
-        price_dist = PriceDistribution(data['prices'])
+        # Convert prices to per-day if needed
+        prices_in = data['prices']
+        if unit == 'per_month':
+            prices_in = [p / days_per_month for p in prices_in]
+        price_dist = PriceDistribution(prices_in)
         calculator = RentalThresholdCalculator(config, price_dist)
         
         # Get dynamic programming results
@@ -210,10 +243,17 @@ def get_dynamic_threshold():
             message = "Normal operation"
         
         static_threshold = static_result.operational_cutoff
+
+        # SOBP thresholds for requested duration (defaults to 1)
+        duration = data.get('duration', 1)
+        sobp_per, sobp_total = calculator.compute_sobp_threshold(duration, current_period, current_inventory)
         
         return jsonify({
             'dynamic_threshold': dynamic_threshold if dynamic_threshold != float('inf') else 999999,
             'static_threshold': static_threshold,
+            'sobp_per_period_threshold': sobp_per,
+            'sobp_total_threshold': sobp_total,
+            'duration': duration,
             'current_period': current_period,
             'current_inventory': current_inventory,
             'is_end_condition': dynamic_threshold == float('inf'),

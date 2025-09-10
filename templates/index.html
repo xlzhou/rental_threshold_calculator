@@ -54,6 +54,19 @@
                     </div>
 
                     <div class="form-group">
+                        <label for="price-unit" data-i18n="price_unit">Price/Cost Unit:</label>
+                        <select id="price-unit" name="price-unit">
+                            <option value="per_day" data-i18n="per_day">Per-day</option>
+                            <option value="per_month" data-i18n="per_month">Per-month</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="days-per-month" data-i18n="days_per_month">Days per month:</label>
+                        <input type="number" id="days-per-month" name="days-per-month" min="1" value="30">
+                    </div>
+
+                    <div class="form-group">
                         <label for="target-leftover" data-i18n="target_leftover">Target Leftover (L*):</label>
                         <input type="number" id="target-leftover" name="target-leftover" min="0" value="3">
                     </div>
@@ -172,6 +185,19 @@
                 </div>
 
                 <div class="form-group">
+                    <label for="duration"><span data-i18n="rental_duration">Rental Duration (periods):</span></label>
+                    <input type="number" id="duration" name="duration" min="1" value="1">
+                </div>
+
+                <div class="form-group">
+                    <label for="offer-type" data-i18n="offer_type">Offer Type:</label>
+                    <select id="offer-type" name="offer-type">
+                        <option value="per_period" data-i18n="per_period">Per-period price</option>
+                        <option value="total" data-i18n="total_price">Total price</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
                     <label for="threshold-type" data-i18n="decision_method">Decision Method:</label>
                     <select id="threshold-type" name="threshold-type">
                         <option value="dynamic" data-i18n="dynamic_programming_recommended">Dynamic Programming (Recommended)</option>
@@ -186,6 +212,8 @@
                         <h3 data-i18n="current_dynamic_threshold">Current Dynamic Threshold</h3>
                         <div class="threshold-info">
                             <p><strong data-i18n="threshold_current_state">Threshold for current state:</strong> <span id="current-threshold">-</span></p>
+                            <p><strong data-i18n="sobp_threshold_per">SOBP per-period (D):</strong> <span id="sobp-per-threshold">-</span></p>
+                            <p><strong data-i18n="sobp_threshold_total">SOBP total (D):</strong> <span id="sobp-total-threshold">-</span></p>
                             <p><strong data-i18n="static_comparison">Static threshold:</strong> <span id="static-comparison">-</span></p>
                             <p><small data-i18n="threshold_auto_update">Threshold updates automatically based on current period and inventory</small></p>
                         </div>
