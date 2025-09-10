@@ -283,7 +283,9 @@ class RentalCalculator {
                 },
                 body: JSON.stringify({
                     current_threshold: this.results.static_analysis.operational_cutoff,
-                    prices: this.results.prices
+                    prices: this.results.prices,
+                    unit: this.results.unit,
+                    days_per_month: this.results.days_per_month
                 })
             });
 
@@ -472,7 +474,7 @@ class RentalCalculator {
                 const sobpTot = document.getElementById('sobp-total-threshold');
                 if (sobpPer) sobpPer.textContent = `${currency}${(data.sobp_per_period_threshold * scale).toFixed(2)} (D=${data.duration})`;
                 // SOBP total should be scaled for display when unit is per_month
-                const sobpTotalDisplay = (this.results && this.results.unit === 'per_month' && data.duration === 1) ? (data.sobp_total_threshold * scale) : data.sobp_total_threshold;
+                const sobpTotalDisplay = (this.results && this.results.unit === 'per_month') ? (data.sobp_total_threshold * scale) : data.sobp_total_threshold;
                 if (sobpTot) sobpTot.textContent = `${currency}${sobpTotalDisplay.toFixed(2)} (D=${data.duration})`;
                 
                 // Update the info text with the message

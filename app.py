@@ -347,11 +347,19 @@ def relax_threshold():
     try:
         data = request.get_json()
         
-        current_threshold = data['current_threshold']
-        prices = data['prices']
+        current_threshold = data['current_threshold']  # This is per-day from backend
+        prices = data['prices']  # These are original per-month values from user
+        unit = data.get('unit', 'per_day')
+        days_per_month = int(data.get('days_per_month', 30) or 30)
+        
+        # Convert prices to per-day for comparison with current_threshold
+        if unit == 'per_month':
+            comparison_prices = [p / days_per_month for p in prices]
+        else:
+            comparison_prices = prices
         
         # Find next lower price
-        price_dist = PriceDistribution(prices)
+        price_dist = PriceDistribution(comparison_prices)
         candidates = sorted([p for p in price_dist.unique_prices() if p < current_threshold])
         
         if candidates:
@@ -360,7 +368,7 @@ def relax_threshold():
             new_threshold = current_threshold * 0.9  # Fallback: reduce by 10%
         
         return jsonify({
-            'new_threshold': new_threshold,
+            'new_threshold': new_threshold,  # Returns per-day value for backend consistency
             'old_threshold': current_threshold
         })
         
