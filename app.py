@@ -85,7 +85,9 @@ def calculate_threshold():
                 'total_arrivals': config.N,
                 'target_leftover': config.target_leftover,
                 'failure_threshold': config.failure_threshold,
-                'cost_floor': config.cost_floor
+                'cost_floor': config.cost_floor,
+                'unit': unit,
+                'days_per_month': days_per_month
             },
             'prices': data['prices'],
             'static_analysis': {
@@ -170,8 +172,11 @@ def check_offer():
             # Convert per-period offer to per-day if needed
             offer_price = data['offer_price']
             offer_type = data.get('offer_type', 'per_period')
+            original_offer_price = offer_price
             if offer_type == 'per_period' and unit == 'per_month':
                 offer_price = offer_price / days_per_month
+            
+            # Debug logs removed - unit conversion working correctly
 
             accept, rationale, margin = calculator.make_decision(
                 offer_price,
@@ -181,6 +186,35 @@ def check_offer():
                 duration=data.get('duration', 1),
                 offer_type=offer_type
             )
+            
+            # Convert rationale back to user-friendly units for display
+            if unit == 'per_month' and offer_type == 'per_period':
+                # Scale back the rationale values for per-month display
+                display_rationale = rationale
+                # Replace per-day values in rationale with per-month equivalents
+                import re
+                # Find price and threshold values in the rationale
+                price_match = re.search(r'(\d+\.\d+) ≥ threshold (\d+\.\d+)', rationale)
+                if not price_match:
+                    price_match = re.search(r'(\d+\.\d+) < threshold (\d+\.\d+)', rationale)
+                
+                if price_match:
+                    per_day_price = float(price_match.group(1))
+                    per_day_threshold = float(price_match.group(2))
+                    per_month_price = per_day_price * days_per_month
+                    per_month_threshold = per_day_threshold * days_per_month
+                    
+                    # Replace the values in the rationale
+                    display_rationale = rationale.replace(
+                        f"{per_day_price:.2f}", f"{per_month_price:.2f}"
+                    ).replace(
+                        f"{per_day_threshold:.2f}", f"{per_month_threshold:.2f}"
+                    )
+                rationale = display_rationale
+                
+            # Scale margin for display if needed
+            if unit == 'per_month' and offer_type == 'per_period':
+                margin = margin * days_per_month
         
         return jsonify({
             'accept': accept,

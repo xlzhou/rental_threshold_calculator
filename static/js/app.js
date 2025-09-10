@@ -465,11 +465,15 @@ class RentalCalculator {
                     document.getElementById('current-threshold').textContent = `${currency}${(data.sobp_per_period_threshold * scale).toFixed(2)}`;
                     document.getElementById('current-threshold').style.color = '#3498db';
                 }
-                document.getElementById('static-comparison').textContent = `${currency}${(data.static_threshold * scale).toFixed(2)}/month`;
+                // Static threshold is already in per-day, need to convert to display unit properly
+                const staticDisplay = (this.results && this.results.unit === 'per_month') ? (data.static_threshold * scale) : data.static_threshold;
+                document.getElementById('static-comparison').textContent = `${currency}${staticDisplay.toFixed(2)}${(this.results && this.results.unit === 'per_month') ? '/month' : '/day'}`;
                 const sobpPer = document.getElementById('sobp-per-threshold');
                 const sobpTot = document.getElementById('sobp-total-threshold');
                 if (sobpPer) sobpPer.textContent = `${currency}${(data.sobp_per_period_threshold * scale).toFixed(2)} (D=${data.duration})`;
-                if (sobpTot) sobpTot.textContent = `${currency}${data.sobp_total_threshold.toFixed(2)} (D=${data.duration})`;
+                // SOBP total should be scaled for display when unit is per_month
+                const sobpTotalDisplay = (this.results && this.results.unit === 'per_month' && data.duration === 1) ? (data.sobp_total_threshold * scale) : data.sobp_total_threshold;
+                if (sobpTot) sobpTot.textContent = `${currency}${sobpTotalDisplay.toFixed(2)} (D=${data.duration})`;
                 
                 // Update the info text with the message
                 const infoElement = document.querySelector('.threshold-info p:last-child small');

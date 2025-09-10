@@ -318,6 +318,7 @@ class RentalThresholdCalculator:
                 threshold = per_thr
                 comp_price = price
                 cost_basis = self.config.c
+            # Debug removed - threshold comparison working correctly
             if comp_price >= threshold:
                 margin = comp_price - cost_basis
                 if offer_type == 'total':
