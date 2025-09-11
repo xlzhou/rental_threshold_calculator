@@ -204,6 +204,10 @@ def check_offer():
                     per_month_price = per_day_price * days_per_month
                     per_month_threshold = per_day_threshold * days_per_month
                     
+                    # Round to avoid floating-point precision issues
+                    per_month_price = round(per_month_price, 2)
+                    per_month_threshold = round(per_month_threshold, 2)
+                    
                     # Return the replacement with same format as original
                     return f"{per_month_price:.2f} {operator} threshold {per_month_threshold:.2f}"
                 
@@ -214,6 +218,7 @@ def check_offer():
             # Scale margin for display if needed
             if unit == 'per_month' and offer_type == 'per_period':
                 margin = margin * days_per_month
+                margin = round(margin, 2)  # Round to avoid floating-point precision issues
         
         return jsonify({
             'accept': accept,

@@ -211,15 +211,22 @@ class RentalThresholdCalculator:
         T, X = self.config.T, self.config.X
         s = self.config.s
         
-        # Map arrival intensity (per period) to a single-offer arrival probability per period.
-        # If arrival_rate not provided, infer from total arrivals over T.
-        # Use Poisson assumption: p_arrival = 1 - exp(-lambda).
+        # Get arrival rate λ
         if self.config.arrival_rate is not None:
             lam = float(self.config.arrival_rate)
         else:
             # Derive per-period rate from total arrivals
             lam = float(self.config.N) / float(max(T, 1))
-        p_arrival = 1.0 - math.exp(-max(lam, 0.0))
+        
+        # Compound Poisson: K ~ Poisson(λ) arrivals per period
+        # Truncate at K_max for computational efficiency (capture 99% of probability mass)
+        # Use more aggressive truncation for web performance
+        K_max = min(X + 5, max(10, int(lam + 3 * math.sqrt(lam))))
+        
+        # Precompute Poisson probabilities P(K=k) for k=0 to K_max
+        poisson_probs = {}
+        for k in range(K_max + 1):
+            poisson_probs[k] = math.exp(-lam) * (lam ** k) / math.factorial(k)
         
         # Initialize value function and bid prices
         V = {}  # V_t(x)
@@ -237,18 +244,22 @@ class RentalThresholdCalculator:
                     V[(t, x)] = V[(t + 1, x)]
                     bid_prices[(t, x)] = float('inf')  # Never accept
                 else:
-                    # Compute expected value considering probability of no arrival
-                    # If no arrival: carry value forward unchanged.
-                    # If arrival: observe a single price draw from empirical distribution and decide.
-                    # E[V] = (1 - p_arrival) * V_{t+1}(x) + p_arrival * E_p[max{p - c + V_{t+1}(x-1), V_{t+1}(x)}]
-                    ev_given_arrival = 0.0
-                    # Bid price based on future-state marginal value
-                    bid_price = V[(t + 1, x)] - V[(t + 1, x - 1)]
-                    for price, prob in zip(self.price_dist.prices, self.price_dist.probabilities):
-                        accept_value = price - self.config.c + V[(t + 1, x - 1)] if price >= bid_price else V[(t + 1, x)]
-                        reject_value = V[(t + 1, x)]
-                        ev_given_arrival += prob * max(accept_value, reject_value)
-                    expected_value = (1.0 - p_arrival) * V[(t + 1, x)] + p_arrival * ev_given_arrival
+                    # Compute expected value considering compound Poisson arrivals
+                    # For each possible number of arrivals K, compute expected value
+                    expected_value = 0.0
+                    
+                    for k in range(K_max + 1):
+                        if k == 0:
+                            # No arrivals: carry value forward
+                            expected_value += poisson_probs[k] * V[(t + 1, x)]
+                        else:
+                            # K arrivals: need to process multiple price offers
+                            # Use dynamic programming to compute optimal acceptance for K arrivals
+                            ev_given_k_arrivals = self._compute_expected_value_given_k_arrivals(
+                                k, x, V, t
+                            )
+                            expected_value += poisson_probs[k] * ev_given_k_arrivals
+                    
                     V[(t, x)] = expected_value
                     bid_prices[(t, x)] = V[(t, x)] - V[(t, x - 1)] if x > 0 else float('inf')
         
@@ -263,6 +274,63 @@ class RentalThresholdCalculator:
             bid_prices=bid_prices,
             policy=policy
         )
+    
+    def _compute_expected_value_given_k_arrivals(self, k: int, current_x: int, V: dict, t: int) -> float:
+        """Compute expected value given k arrivals in current period."""
+        # For k=0, no arrivals, just return future value
+        if k == 0:
+            return V[(t + 1, current_x)]
+        
+        # For k=1, use simplified calculation (single arrival)
+        if k == 1:
+            ev_given_arrival = 0.0
+            bid_price = V[(t + 1, current_x)] - V[(t + 1, current_x - 1)]
+            
+            for price, prob in zip(self.price_dist.prices, self.price_dist.probabilities):
+                accept_value = price - self.config.c + V[(t + 1, current_x - 1)] if price >= bid_price else V[(t + 1, current_x)]
+                ev_given_arrival += prob * accept_value
+            
+            return ev_given_arrival
+        
+        # For k > 1, use dynamic programming with memoization
+        # Use memoization key to avoid redundant calculations
+        memo_key = (k, current_x, t)
+        if hasattr(self, '_memo_cache') and memo_key in self._memo_cache:
+            return self._memo_cache[memo_key]
+        
+        # Initialize DP table: dp[i][j] = max value with i arrivals processed and j inventory remaining
+        dp = [[0.0] * (current_x + 1) for _ in range(k + 1)]
+        
+        # Base case: no arrivals processed yet, value is V_{t+1}(current_x)
+        for j in range(current_x + 1):
+            dp[0][j] = V[(t + 1, j)]
+        
+        # Process each arrival sequentially
+        for i in range(1, k + 1):
+            for j in range(current_x + 1):
+                if j == 0:
+                    # No inventory left, must reject all remaining offers
+                    dp[i][j] = dp[i-1][j]  # Value doesn't change
+                else:
+                    # For each price in distribution, compute optimal decision
+                    ev_given_arrival = 0.0
+                    # Marginal value of inventory (bid price) used for acceptance decision
+                    marginal_value = dp[i-1][j] - dp[i-1][j-1]
+                    
+                    for price, prob in zip(self.price_dist.prices, self.price_dist.probabilities):
+                        accept_value = price - self.config.c + dp[i-1][j-1] if price >= marginal_value else dp[i-1][j]
+                        ev_given_arrival += prob * accept_value
+                    
+                    dp[i][j] = ev_given_arrival
+        
+        result = dp[k][current_x]
+        
+        # Cache the result
+        if not hasattr(self, '_memo_cache'):
+            self._memo_cache = {}
+        self._memo_cache[memo_key] = result
+        
+        return result
 
     def _ensure_dynamic(self) -> DynamicResult:
         """Ensure dynamic program is computed and return it."""
@@ -300,8 +368,11 @@ class RentalThresholdCalculator:
             sum_b += b
 
         per_period_threshold = max(self.config.cost_floor, self.config.c + (sum_b / duration))
+        per_period_threshold = round(per_period_threshold, 2)  # Round to avoid floating-point precision issues
+        
         total_threshold_raw = self.config.c * duration + sum_b
         total_threshold = max(self.config.cost_floor * duration, total_threshold_raw)
+        total_threshold = round(total_threshold, 2)  # Round to avoid floating-point precision issues
         
         # Dynamic program now cached - consistent results
         
@@ -324,25 +395,28 @@ class RentalThresholdCalculator:
                 threshold = per_thr
                 comp_price = price
                 cost_basis = self.config.c
-            # Debug removed - threshold comparison working correctly
-            if comp_price >= threshold:
+            # Round both values for consistent comparison to avoid floating-point precision issues
+            comp_price_rounded = round(comp_price, 2)
+            threshold_rounded = round(threshold, 2)
+            
+            if comp_price_rounded >= threshold_rounded:
                 margin = comp_price - cost_basis
                 if offer_type == 'total':
                     rationale = (
-                        f"Accept: total {comp_price:.2f} ≥ threshold {threshold:.2f} "
+                        f"Accept: total {comp_price_rounded:.2f} ≥ threshold {threshold_rounded:.2f} "
                         f"(duration={duration}, margin: {margin:.2f})"
                     )
                 else:
                     rationale = (
-                        f"Accept: per-period {comp_price:.2f} ≥ threshold {threshold:.2f} "
+                        f"Accept: per-period {comp_price_rounded:.2f} ≥ threshold {threshold_rounded:.2f} "
                         f"(D={duration}, margin: {margin:.2f}/period)"
                     )
                 return True, rationale, margin
             else:
                 if offer_type == 'total':
-                    rationale = f"Reject: total {comp_price:.2f} < threshold {threshold:.2f} (D={duration})"
+                    rationale = f"Reject: total {comp_price_rounded:.2f} < threshold {threshold_rounded:.2f} (D={duration})"
                 else:
-                    rationale = f"Reject: per-period {comp_price:.2f} < threshold {threshold:.2f} (D={duration})"
+                    rationale = f"Reject: per-period {comp_price_rounded:.2f} < threshold {threshold_rounded:.2f} (D={duration})"
                 return False, rationale, 0.0
         else:
             # Use static threshold
