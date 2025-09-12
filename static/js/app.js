@@ -4,6 +4,8 @@ class RentalCalculator {
         this.initializeEventListeners();
         this.results = null;
         this.initializeI18n();
+        this.debounceTimer = null;  // For debouncing auto-calculations
+        this.isCalculating = false;  // Prevent overlapping calculations
     }
 
     getCurrencySymbol() {
@@ -55,23 +57,19 @@ class RentalCalculator {
             this.handleCSVUpload(e);
         });
 
-        // Live offer input changes
+        // Live offer input changes with debouncing
         document.getElementById('current-period').addEventListener('input', () => {
-            this.updateDynamicThreshold();
-            this.autoRecalculateDecision();
+            this.debouncedUpdate();
         });
         
         document.getElementById('current-inventory').addEventListener('input', () => {
-            this.updateDynamicThreshold();
-            this.autoRecalculateDecision();
+            this.debouncedUpdate();
         });
 
         const durationEl = document.getElementById('duration');
         if (durationEl) {
             durationEl.addEventListener('input', () => {
-                this.updateDynamicThreshold();
-                // Auto-recalculate decision if there's a previous offer
-                this.autoRecalculateDecision();
+                this.debouncedUpdate();
             });
         }
 
@@ -119,8 +117,42 @@ class RentalCalculator {
         }
     }
 
+    debouncedUpdate() {
+        // Clear any existing timer
+        if (this.debounceTimer) {
+            clearTimeout(this.debounceTimer);
+        }
+        
+        // Show a subtle indicator that auto-update is pending
+        const thresholdEl = document.getElementById('current-threshold');
+        if (thresholdEl) {
+            thresholdEl.style.opacity = '0.6';
+            thresholdEl.style.fontStyle = 'italic';
+        }
+        
+        // Set a new timer to wait 1200ms before updating (gives time to finish typing)
+        this.debounceTimer = setTimeout(() => {
+            if (!this.isCalculating && this.results) {
+                this.updateDynamicThreshold();
+                this.autoRecalculateDecision();
+                // Restore normal appearance after update
+                if (thresholdEl) {
+                    thresholdEl.style.opacity = '1';
+                    thresholdEl.style.fontStyle = 'normal';
+                }
+            }
+        }, 1200); // 1200ms delay - gives more time to finish inputting
+    }
+
     async calculateThreshold() {
+        // Prevent multiple simultaneous calculations
+        if (this.isCalculating) {
+            console.log('Calculation already in progress, skipping...');
+            return;
+        }
+        
         try {
+            this.isCalculating = true;
             const formData = this.getFormData();
             console.log('Form data:', formData); // Debug log
             
@@ -153,12 +185,26 @@ class RentalCalculator {
             this.showError('Error: ' + error.message);
         } finally {
             this.hideLoading('calculate-btn');
+            this.isCalculating = false;
         }
     }
 
     async checkOffer() {
         if (!this.results) {
             this.showError(window.i18n ? window.i18n.t('no_results') : 'Please calculate threshold first');
+            return;
+        }
+        
+        // Prevent multiple simultaneous offer checks
+        if (this.isCalculating) {
+            console.log('Calculation in progress, skipping offer check...');
+            return;
+        }
+        
+        // Check if configuration has changed since last calculation
+        const currentFormData = this.getFormData();
+        if (this.hasConfigurationChanged(currentFormData)) {
+            this.showError('Configuration has changed. Please click "Calculate Threshold" first to update results.');
             return;
         }
 
@@ -175,6 +221,7 @@ class RentalCalculator {
         }
 
         this.showLoading('check-offer');
+        this.isCalculating = true;
 
         try {
             const response = await fetch('/api/check-offer', {
@@ -183,7 +230,7 @@ class RentalCalculator {
                     'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
-                    config: this.results.config,
+                    config: this.getConfigFromResults(),
                     prices: this.results.prices,
                     offer_price: offerPrice,
                     current_period: currentPeriod,
@@ -207,6 +254,7 @@ class RentalCalculator {
             this.showError('Network error: ' + error.message);
         } finally {
             this.hideLoading('check-offer');
+            this.isCalculating = false;
         }
     }
 
@@ -353,6 +401,101 @@ class RentalCalculator {
         return true;
     }
 
+    hasConfigurationChanged(currentFormData) {
+        if (!this.results || !this.results.config) {
+            console.log('No cached results to compare against');
+            return false;
+        }
+        
+        const cached = this.results.config;
+        console.log('Comparing configurations:', {cached, current: currentFormData});
+        
+        // Handle unit conversion for comparison - normalize everything to per-day
+        const unit = currentFormData.unit || this.results.unit || 'per_day';
+        const daysPerMonth = currentFormData.days_per_month || this.results.days_per_month || 30;
+        
+        // Convert current form data to per-day if needed
+        let currentCostPerDay = currentFormData.cost;
+        let currentCostFloorPerDay = currentFormData.cost_floor || currentFormData.cost;
+        if (unit === 'per_month') {
+            currentCostPerDay = currentFormData.cost / daysPerMonth;
+            currentCostFloorPerDay = (currentFormData.cost_floor || currentFormData.cost) / daysPerMonth;
+        }
+        
+        // Create normalized comparison objects (both in per-day units)
+        const normalizedCached = {
+            inventory: cached.inventory,
+            periods: cached.periods, 
+            cost: cached.cost, // Already in per-day from backend
+            salvage: cached.salvage || 0,
+            arrival_rate: cached.total_arrivals ? (cached.total_arrivals / cached.periods) : (cached.arrival_rate || 0),
+            target_leftover: cached.target_leftover || 3,
+            failure_threshold: cached.failure_threshold || 5,
+            cost_floor: cached.cost_floor || cached.cost || 0 // Already in per-day from backend
+        };
+        
+        const normalizedCurrent = {
+            inventory: currentFormData.inventory,
+            periods: currentFormData.periods,
+            cost: currentCostPerDay, // Normalized to per-day
+            salvage: currentFormData.salvage || 0,
+            arrival_rate: currentFormData.arrival_rate || 0,
+            target_leftover: currentFormData.target_leftover || 3,
+            failure_threshold: currentFormData.failure_threshold || 5,
+            cost_floor: currentCostFloorPerDay // Normalized to per-day
+        };
+        
+        // Check each parameter
+        for (let param of Object.keys(normalizedCached)) {
+            const cachedVal = normalizedCached[param];
+            const currentVal = normalizedCurrent[param];
+            
+            if (Math.abs(cachedVal - currentVal) > 0.001) {
+                console.log(`Configuration changed: ${param} ${cachedVal} -> ${currentVal}`);
+                return true;
+            }
+        }
+        
+        // Check prices - handle case where arrays might be empty or undefined
+        const cachedPrices = this.results.prices || [];
+        const currentPrices = currentFormData.prices || [];
+        
+        if (cachedPrices.length !== currentPrices.length) {
+            console.log('Prices length changed');
+            return true;
+        }
+        
+        const sortedCached = [...cachedPrices].sort((a,b) => a-b);
+        const sortedCurrent = [...currentPrices].sort((a,b) => a-b);
+        
+        for (let i = 0; i < sortedCached.length; i++) {
+            if (Math.abs(sortedCached[i] - sortedCurrent[i]) > 0.001) {
+                console.log('Prices changed');
+                return true;
+            }
+        }
+        
+        console.log('No configuration changes detected');
+        return false;
+    }
+    
+    getConfigFromResults() {
+        // Return the current form data as config (to use latest values)
+        const formData = this.getFormData();
+        return {
+            inventory: formData.inventory,
+            periods: formData.periods,
+            cost: formData.cost,
+            salvage: formData.salvage,
+            total_arrivals: formData.arrival_rate * formData.periods, // Convert to total arrivals
+            target_leftover: formData.target_leftover,
+            failure_threshold: formData.failure_threshold,
+            cost_floor: formData.cost_floor || formData.cost,
+            unit: formData.unit,
+            days_per_month: formData.days_per_month
+        };
+    }
+
     displayResults(data) {
         const results = data.static_analysis;
         const dynamic = data.dynamic_analysis;
@@ -434,12 +577,26 @@ class RentalCalculator {
 
     async updateDynamicThreshold() {
         if (!this.results) return;
+        
+        // Skip if another threshold update is already in progress (but allow during main calculation)
+        if (this.isUpdatingThreshold) {
+            console.log('Threshold update already in progress, skipping...');
+            return;
+        }
 
         const currentPeriod = parseInt(document.getElementById('current-period').value) || 0;
         const currentInventory = parseInt(document.getElementById('current-inventory').value) || this.results.config.inventory;
         const duration = parseInt(document.getElementById('duration').value) || 1;
         const currency = this.getCurrencySymbol();
         const scale = (this.results.unit === 'per_month') ? (this.results.days_per_month || 30) : 1;
+        
+        
+        // Set threshold update flag to prevent concurrent threshold updates
+        this.isUpdatingThreshold = true;
+        
+        // Create a unique request identifier to handle race conditions
+        const requestId = Date.now() + '_' + Math.random();
+        this.lastThresholdRequestId = requestId;
         
         try {
             const response = await fetch('/api/get-dynamic-threshold', {
@@ -457,6 +614,13 @@ class RentalCalculator {
             });
 
             const data = await response.json();
+            
+            // Check if this is still the latest request (handle race conditions)
+            if (this.lastThresholdRequestId !== requestId) {
+                console.log(`Ignoring stale threshold response ${requestId} (current: ${this.lastThresholdRequestId})`);
+                this.isUpdatingThreshold = false;
+                return;
+            }
             
             if (response.ok) {
                 if (data.is_end_condition) {
@@ -482,9 +646,15 @@ class RentalCalculator {
                 if (infoElement) {
                     infoElement.textContent = data.message;
                 }
+            } else {
+                console.log(`API response not OK: ${response.status}`);
+                console.log(`Response data:`, data);
             }
         } catch (error) {
             console.error('Error updating dynamic threshold:', error);
+        } finally {
+            // Always clear the threshold update flag
+            this.isUpdatingThreshold = false;
         }
     }
 
@@ -525,12 +695,10 @@ class RentalCalculator {
         
         rationaleText.textContent = rationaleDisplay;
         
-        // Translate margin text
+        // Display margin using structured data (no more complex scaling)
         const currency = this.getCurrencySymbol();
-        const scale = (this.results && this.results.unit === 'per_month') ? (this.results.days_per_month || 30) : 1;
-        const selectedOfferType = document.getElementById('offer-type') ? document.getElementById('offer-type').value : 'per_period';
-        const marginValue = (selectedOfferType === 'per_period') ? (data.margin * scale) : data.margin;
-        const marginDisplay = data.margin > 0 ? 
+        const marginValue = data.margin || 0;  // Backend already converted to correct units
+        const marginDisplay = marginValue > 0 ? 
             (isZh ? `利润：${currency}${marginValue.toFixed(2)}` : `Margin: ${currency}${marginValue.toFixed(2)}`) : '';
         marginText.textContent = marginDisplay;
 

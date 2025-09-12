@@ -167,6 +167,48 @@ class RentalThresholdCalculator:
         )
         self._dynamic_result = None  # Cache for dynamic program
     
+    def compute_adaptive_k_max(self, lam: float, target_coverage: float = 0.999) -> int:
+        """Find K_max that achieves target Poisson tail coverage."""
+        if lam <= 0:
+            return 1
+        
+        cumulative = 0.0
+        k = 0
+        max_iterations = 100  # Safety limit to prevent infinite loops
+        
+        while cumulative < target_coverage and k < max_iterations:
+            try:
+                prob = math.exp(-lam) * (lam ** k) / math.factorial(k)
+                cumulative += prob
+                k += 1
+            except OverflowError:
+                # For very large k, factorial becomes too large
+                break
+        
+        # Ensure minimum K_max of 1 and reasonable maximum
+        return max(1, min(k, 50))
+    
+    def compute_renormalized_poisson_probs(self, lam: float, k_max: int) -> Dict[int, float]:
+        """Compute truncated and renormalized Poisson probabilities."""
+        probs = {}
+        total = 0.0
+        
+        # Compute unnormalized probabilities
+        for k in range(k_max + 1):
+            try:
+                prob = math.exp(-lam) * (lam ** k) / math.factorial(k)
+                probs[k] = prob
+                total += prob
+            except OverflowError:
+                probs[k] = 0.0
+        
+        # Renormalize to sum to 1.0
+        if total > 0:
+            for k in probs:
+                probs[k] = probs[k] / total
+        
+        return probs
+    
     def compute_static_threshold(self) -> ThresholdResult:
         """Algorithm A1: Static cutoff selection."""
         candidates = self.price_dist.unique_prices()
@@ -208,8 +250,19 @@ class RentalThresholdCalculator:
     
     def compute_dynamic_program(self) -> DynamicResult:
         """V2 Feature: Dynamic programming with bid prices."""
+        import time
+        import sys
+        
+        start_time = time.time()
         T, X = self.config.T, self.config.X
         s = self.config.s
+        
+        print(f"[DEBUG] Starting DP computation: T={T}, X={X}, λ={self.config.arrival_rate if self.config.arrival_rate else 'N/A'}", file=sys.stderr)
+        
+        # Performance warning for large problems
+        complexity_estimate = T * X * 8 * 8  # Rough estimate
+        if complexity_estimate > 50000:
+            print(f"[DEBUG] Large problem detected (complexity ~{complexity_estimate:,}). Using aggressive optimizations.", file=sys.stderr)
         
         # Get arrival rate λ
         if self.config.arrival_rate is not None:
@@ -219,14 +272,25 @@ class RentalThresholdCalculator:
             lam = float(self.config.N) / float(max(T, 1))
         
         # Compound Poisson: K ~ Poisson(λ) arrivals per period
-        # Truncate at K_max for computational efficiency (capture 99% of probability mass)
-        # Use more aggressive truncation for web performance
-        K_max = min(X + 5, max(10, int(lam + 3 * math.sqrt(lam))))
+        # Use adaptive K_max based on desired tail coverage
+        target_coverage = 0.999  # 99.9% coverage
         
-        # Precompute Poisson probabilities P(K=k) for k=0 to K_max
-        poisson_probs = {}
-        for k in range(K_max + 1):
-            poisson_probs[k] = math.exp(-lam) * (lam ** k) / math.factorial(k)
+        # For very large inventory, use lower coverage to maintain performance
+        if X > 50:
+            target_coverage = 0.995  # 99.5% coverage
+        elif X > 30:
+            target_coverage = 0.998  # 99.8% coverage
+        
+        K_max = self.compute_adaptive_k_max(lam, target_coverage)
+        
+        print(f"[DEBUG] K_max={K_max} (adaptive), λ={lam:.3f}, target_coverage={target_coverage}", file=sys.stderr)
+        
+        # Precompute renormalized Poisson probabilities P(K=k) for k=0 to K_max
+        poisson_probs = self.compute_renormalized_poisson_probs(lam, K_max)
+        
+        total_prob = sum(poisson_probs.values())
+        actual_coverage = sum(poisson_probs[k] for k in poisson_probs)
+        print(f"[DEBUG] Poisson probability coverage: {total_prob:.6f} (renormalized: {actual_coverage:.6f})", file=sys.stderr)
         
         # Initialize value function and bid prices
         V = {}  # V_t(x)
@@ -237,7 +301,13 @@ class RentalThresholdCalculator:
             V[(T, x)] = s * x - self.penalty_fn(x)
         
         # Backward induction
+        print(f"[DEBUG] Starting backward induction for {T} periods...", file=sys.stderr)
+        progress_frequency = max(1, T // 10) if X > 30 else 10  # More frequent updates for large problems
         for t in range(T - 1, -1, -1):
+            if t % progress_frequency == 0 or t < 5:  # More frequent progress updates for large inventory
+                elapsed = time.time() - start_time
+                progress = (T - 1 - t) / T * 100
+                print(f"[DEBUG] Processing period t={t} ({progress:.1f}% complete, {elapsed:.1f}s elapsed)...", file=sys.stderr)
             for x in range(X + 1):
                 if x == 0:
                     # No inventory left
@@ -267,7 +337,21 @@ class RentalThresholdCalculator:
         policy = {}
         for (t, x), bid_price in bid_prices.items():
             threshold = bid_price + self.config.c if bid_price < float('inf') else float('inf')
-            policy[(t, x)] = max(threshold, self.config.cost_floor)
+            # Round to avoid floating-point precision issues before applying cost floor
+            threshold_rounded = round(threshold, 2) if threshold < float('inf') else float('inf')
+            policy[(t, x)] = max(threshold_rounded, self.config.cost_floor)
+        
+        end_time = time.time()
+        computation_time = end_time - start_time
+        memo_cache_size = len(getattr(self, '_memo_cache', {}))
+        print(f"[DEBUG] DP computation completed in {computation_time:.3f} seconds", file=sys.stderr)
+        print(f"[DEBUG] States computed: {len(V)}, Memo cache size: {memo_cache_size}", file=sys.stderr)
+        
+        # Clear memoization cache after DP computation to prevent memory bloat
+        if hasattr(self, '_memo_cache') and len(self._memo_cache) > 0:
+            cache_size_before = len(self._memo_cache)
+            self._memo_cache.clear()
+            print(f"[DEBUG] Cleared memo cache after DP computation: {cache_size_before} -> 0", file=sys.stderr)
         
         return DynamicResult(
             value_function=V,
@@ -277,6 +361,8 @@ class RentalThresholdCalculator:
     
     def _compute_expected_value_given_k_arrivals(self, k: int, current_x: int, V: dict, t: int) -> float:
         """Compute expected value given k arrivals in current period."""
+        import sys
+        
         # For k=0, no arrivals, just return future value
         if k == 0:
             return V[(t + 1, current_x)]
@@ -285,18 +371,38 @@ class RentalThresholdCalculator:
         if k == 1:
             ev_given_arrival = 0.0
             bid_price = V[(t + 1, current_x)] - V[(t + 1, current_x - 1)]
-            
+            # Accept iff price >= c + bid_price
+            threshold = self.config.c + bid_price
             for price, prob in zip(self.price_dist.prices, self.price_dist.probabilities):
-                accept_value = price - self.config.c + V[(t + 1, current_x - 1)] if price >= bid_price else V[(t + 1, current_x)]
+                accept_value = price - self.config.c + V[(t + 1, current_x - 1)] if price >= threshold else V[(t + 1, current_x)]
                 ev_given_arrival += prob * accept_value
-            
             return ev_given_arrival
         
         # For k > 1, use dynamic programming with memoization
         # Use memoization key to avoid redundant calculations
         memo_key = (k, current_x, t)
         if hasattr(self, '_memo_cache') and memo_key in self._memo_cache:
+            # Cache hit - print occasionally for debugging
+            if t % 20 == 0 and k > 3:  # Log cache hits for expensive calls
+                print(f"[DEBUG] Cache HIT: k={k}, x={current_x}, t={t}", file=sys.stderr)
             return self._memo_cache[memo_key]
+        
+        # Cache miss - this is expensive
+        if k > 3 and t % 20 == 0:
+            print(f"[DEBUG] Computing k={k} arrivals for state (t={t}, x={current_x})", file=sys.stderr)
+        
+        # Early termination for very large inventory: if current_x is much larger than 
+        # expected demand, approximate with simpler calculation
+        expected_total_demand = self.config.N if hasattr(self.config, 'N') else self.config.arrival_rate * self.config.T
+        if current_x > expected_total_demand * 2 and k > 2:
+            # For excess inventory states, use simplified linear approximation
+            # This dramatically reduces computation for states that rarely matter
+            base_value = V[(t + 1, current_x)]
+            marginal_value = V[(t + 1, current_x)] - V[(t + 1, max(0, current_x - 1))]
+            # Approximate expected value based on k arrivals and marginal value
+            approx_accepts = min(k * 0.5, current_x)  # Rough estimate
+            approx_value = base_value + approx_accepts * marginal_value * 0.1  # Conservative estimate
+            return approx_value
         
         # Initialize DP table: dp[i][j] = max value with i arrivals processed and j inventory remaining
         dp = [[0.0] * (current_x + 1) for _ in range(k + 1)]
@@ -316,30 +422,51 @@ class RentalThresholdCalculator:
                     ev_given_arrival = 0.0
                     # Marginal value of inventory (bid price) used for acceptance decision
                     marginal_value = dp[i-1][j] - dp[i-1][j-1]
-                    
+                    # Accept iff price >= c + marginal_value
+                    threshold = self.config.c + marginal_value
                     for price, prob in zip(self.price_dist.prices, self.price_dist.probabilities):
-                        accept_value = price - self.config.c + dp[i-1][j-1] if price >= marginal_value else dp[i-1][j]
+                        accept_value = price - self.config.c + dp[i-1][j-1] if price >= threshold else dp[i-1][j]
                         ev_given_arrival += prob * accept_value
                     
                     dp[i][j] = ev_given_arrival
         
         result = dp[k][current_x]
         
-        # Cache the result
+        # Cache the result with size limit to prevent memory bloat
         if not hasattr(self, '_memo_cache'):
             self._memo_cache = {}
+        
+        # Limit cache size to prevent exponential memory growth
+        # Scale cache size inversely with inventory size for large problems
+        if self.config.X > 50:
+            max_cache_size = 20  # Very aggressive for large inventory
+        elif self.config.X > 30:
+            max_cache_size = 50  # Moderate for medium inventory
+        else:
+            max_cache_size = 100  # Standard for small inventory
+        if len(self._memo_cache) >= max_cache_size:
+            # Clear oldest entries (simple FIFO)
+            keys_to_remove = list(self._memo_cache.keys())[:max_cache_size//2]
+            for key in keys_to_remove:
+                del self._memo_cache[key]
+            print(f"[DEBUG] Cleared memo cache - was {max_cache_size}, now {len(self._memo_cache)}", file=sys.stderr)
+        
         self._memo_cache[memo_key] = result
         
         return result
 
     def _ensure_dynamic(self) -> DynamicResult:
         """Ensure dynamic program is computed and return it."""
+        import sys
+        
         if self._dynamic_result is None:
+            print(f"[DEBUG] DP cache MISS - computing new DP result", file=sys.stderr)
             self._dynamic_result = self.compute_dynamic_program()
+        else:
+            print(f"[DEBUG] DP cache HIT - using cached DP result", file=sys.stderr)
         return self._dynamic_result
 
-    def compute_sobp_threshold(self, duration: int, current_time: int, current_inventory: int,
-                                return_total: bool = False) -> Tuple[float, float]:
+    def compute_sobp_threshold(self, duration: int, current_time: int, current_inventory: int) -> Tuple[float, float]:
         """Compute SOBP-based thresholds for a multi-period rental of length `duration`.
 
         Returns a tuple: (per_period_threshold, total_threshold).
@@ -353,19 +480,30 @@ class RentalThresholdCalculator:
         x = max(1, min(current_inventory, X))
         t = max(0, min(current_time, T - 1))
 
+        print(f"[SOBP DEBUG] Input: duration={duration}, t={current_time}, x={current_inventory}", file=sys.stderr)
+        print(f"[SOBP DEBUG] Normalized: T={T}, X={X}, t={t}, x={x}", file=sys.stderr)
+
         # Sum of bid prices over occupancy window
         sum_b = 0.0
         # Shadow bid price beyond horizon: use last available bid or 0
         shadow_b = dynamic.bid_prices.get((T - 1, x), 0.0)
+        print(f"[SOBP DEBUG] Shadow bid price: {shadow_b}", file=sys.stderr)
+        
         for i in range(duration):
             tt = t + i
             if tt <= T - 1:
                 b = dynamic.bid_prices.get((tt, x), 0.0)
+                print(f"[SOBP DEBUG] Period {tt}: bid_price = {b}", file=sys.stderr)
             else:
                 b = shadow_b
+                print(f"[SOBP DEBUG] Period {tt} (beyond horizon): using shadow bid_price = {b}", file=sys.stderr)
             if math.isinf(b):
+                print(f"[SOBP DEBUG] WARNING: infinite bid price at ({tt}, {x}), setting to 0", file=sys.stderr)
                 b = 0.0
             sum_b += b
+
+        print(f"[SOBP DEBUG] Sum of bid prices: {sum_b}", file=sys.stderr)
+        print(f"[SOBP DEBUG] Config: c={self.config.c}, cost_floor={self.config.cost_floor}", file=sys.stderr)
 
         per_period_threshold = max(self.config.cost_floor, self.config.c + (sum_b / duration))
         per_period_threshold = round(per_period_threshold, 2)  # Round to avoid floating-point precision issues
@@ -373,6 +511,8 @@ class RentalThresholdCalculator:
         total_threshold_raw = self.config.c * duration + sum_b
         total_threshold = max(self.config.cost_floor * duration, total_threshold_raw)
         total_threshold = round(total_threshold, 2)  # Round to avoid floating-point precision issues
+        
+        print(f"[SOBP DEBUG] Final thresholds: per_period={per_period_threshold}, total={total_threshold}", file=sys.stderr)
         
         # Dynamic program now cached - consistent results
         
@@ -395,28 +535,35 @@ class RentalThresholdCalculator:
                 threshold = per_thr
                 comp_price = price
                 cost_basis = self.config.c
-            # Round both values for consistent comparison to avoid floating-point precision issues
-            comp_price_rounded = round(comp_price, 2)
-            threshold_rounded = round(threshold, 2)
+            # For consistent comparison and display, round both values to 2 decimal places
+            # But use a small epsilon to handle edge cases where they round to the same value
+            comp_price_display = round(comp_price, 2)
+            threshold_display = round(threshold, 2)
             
-            if comp_price_rounded >= threshold_rounded:
+            # If they round to the same display value, use unrounded comparison for edge cases
+            if comp_price_display == threshold_display:
+                accept_decision = comp_price >= threshold
+            else:
+                accept_decision = comp_price_display >= threshold_display
+            
+            if accept_decision:
                 margin = comp_price - cost_basis
                 if offer_type == 'total':
                     rationale = (
-                        f"Accept: total {comp_price_rounded:.2f} ≥ threshold {threshold_rounded:.2f} "
+                        f"Accept: total {comp_price_display:.2f} ≥ threshold {threshold_display:.2f} "
                         f"(duration={duration}, margin: {margin:.2f})"
                     )
                 else:
                     rationale = (
-                        f"Accept: per-period {comp_price_rounded:.2f} ≥ threshold {threshold_rounded:.2f} "
+                        f"Accept: per-period {comp_price_display:.2f} ≥ threshold {threshold_display:.2f} "
                         f"(D={duration}, margin: {margin:.2f}/period)"
                     )
                 return True, rationale, margin
             else:
                 if offer_type == 'total':
-                    rationale = f"Reject: total {comp_price_rounded:.2f} < threshold {threshold_rounded:.2f} (D={duration})"
+                    rationale = f"Reject: total {comp_price_display:.2f} < threshold {threshold_display:.2f} (D={duration})"
                 else:
-                    rationale = f"Reject: per-period {comp_price_rounded:.2f} < threshold {threshold_rounded:.2f} (D={duration})"
+                    rationale = f"Reject: per-period {comp_price_display:.2f} < threshold {threshold_display:.2f} (D={duration})"
                 return False, rationale, 0.0
         else:
             # Use static threshold

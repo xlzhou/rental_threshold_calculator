@@ -9,6 +9,7 @@ import csv
 import io
 import json
 import os
+import sys
 import tempfile
 from werkzeug.utils import secure_filename
 
@@ -21,6 +22,54 @@ from rental_threshold_calculator_dynamic import (
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
 app.config['UPLOAD_FOLDER'] = tempfile.gettempdir()
+
+# Cache for calculators to avoid recomputing DP
+calculator_cache = {}
+cache_max_size = 10  # Limit cache size to prevent memory bloat
+
+def get_cached_calculator(config_data, prices):
+    """Get or create a cached calculator instance."""
+    import hashlib
+    import json
+    
+    # Create a cache key from config and prices
+    cache_key_data = {
+        'config': config_data,
+        'prices': sorted(prices)  # Sort for consistent hashing
+    }
+    cache_key = hashlib.md5(json.dumps(cache_key_data, sort_keys=True).encode()).hexdigest()
+    
+    if cache_key in calculator_cache:
+        print(f"[CACHE DEBUG] Cache HIT for calculator {cache_key[:8]}", file=sys.stderr)
+        return calculator_cache[cache_key]
+    
+    print(f"[CACHE DEBUG] Cache MISS - creating new calculator {cache_key[:8]}", file=sys.stderr)
+    
+    # Create new calculator
+    config = RentalConfig(
+        X=config_data['inventory'],
+        T=config_data['periods'],
+        c=config_data['cost'],
+        s=config_data.get('salvage', 0.0),
+        total_arrivals=config_data['total_arrivals'],
+        target_leftover=config_data.get('target_leftover', 3),
+        failure_threshold=config_data.get('failure_threshold', 5),
+        cost_floor=config_data.get('cost_floor', 0.0)
+    )
+    
+    price_dist = PriceDistribution(prices)
+    calculator = RentalThresholdCalculator(config, price_dist)
+    
+    # Manage cache size - remove oldest entries if needed
+    if len(calculator_cache) >= cache_max_size:
+        oldest_key = next(iter(calculator_cache))
+        print(f"[CACHE DEBUG] Evicting oldest calculator {oldest_key[:8]}", file=sys.stderr)
+        del calculator_cache[oldest_key]
+    
+    calculator_cache[cache_key] = calculator
+    print(f"[CACHE DEBUG] Cached new calculator. Cache size: {len(calculator_cache)}", file=sys.stderr)
+    
+    return calculator
 
 @app.route('/')
 def index():
@@ -35,6 +84,12 @@ def help():
 @app.route('/api/calculate', methods=['POST'])
 def calculate_threshold():
     """Calculate optimal threshold based on configuration."""
+    import time
+    import sys
+    
+    start_time = time.time()
+    print(f"[API DEBUG] /api/calculate started at {time.strftime('%H:%M:%S')}", file=sys.stderr)
+    
     try:
         data = request.get_json()
         
@@ -109,60 +164,67 @@ def calculate_threshold():
             'days_per_month': days_per_month
         }
         
+        end_time = time.time()
+        total_time = end_time - start_time
+        print(f"[API DEBUG] /api/calculate completed in {total_time:.3f} seconds", file=sys.stderr)
+        
         return jsonify(response)
         
     except Exception as e:
+        end_time = time.time()
+        total_time = end_time - start_time
+        print(f"[API DEBUG] /api/calculate FAILED in {total_time:.3f} seconds: {str(e)}", file=sys.stderr)
         return jsonify({'error': str(e)}), 400
 
 @app.route('/api/check-offer', methods=['POST'])
 def check_offer():
     """Check whether to accept or reject a specific offer."""
+    import time
+    import sys
+    
+    start_time = time.time()
+    
     try:
         data = request.get_json()
         
-        # Recreate configuration and calculator
+        # Use cached calculator to avoid recomputing DP
         config_data = data['config']
-        # Use unit information from original calculation
         unit = config_data.get('unit', 'per_day')
         days_per_month = int(config_data.get('days_per_month', 30) or 30)
-        # Unit conversion working correctly now
-
-        config = RentalConfig(
-            X=config_data['inventory'],
-            T=config_data['periods'],
-            c=config_data['cost'],
-            s=config_data.get('salvage', 0.0),
-            total_arrivals=config_data['total_arrivals'],
-            target_leftover=config_data.get('target_leftover', 3),
-            failure_threshold=config_data.get('failure_threshold', 5),
-            cost_floor=config_data.get('cost_floor', 0.0)
-        )
         
-        price_dist = PriceDistribution(data['prices'])
-        calculator = RentalThresholdCalculator(config, price_dist)
+        # Get cached calculator - this is the KEY optimization
+        calculator = get_cached_calculator(config_data, data['prices'])
         
         # Check boundary conditions first
         current_period = data.get('current_period', 0)
-        current_inventory = data.get('current_inventory', config.X)
+        current_inventory = data.get('current_inventory', config_data['inventory'])
         
-        if current_period >= config.T:
+        if current_period >= config_data['periods']:
             # End of horizon
-            accept, rationale, margin = False, f"Reject: End of horizon (period {current_period} >= {config.T})", 0.0
+            accept, rationale, margin = False, f"Reject: End of horizon (period {current_period} >= {config_data['periods']})", 0.0
         elif current_inventory <= 0:
             # No inventory
             accept, rationale, margin = False, f"Reject: No inventory remaining", 0.0
         else:
             # Recreate configuration and calculator with actual cost floor
             config_data = data['config']
+            
+            # Convert costs to per-day if needed (same as get-dynamic-threshold API)
+            c = config_data['cost']
+            cost_floor_input = config_data.get('cost_floor', 0.0)
+            if unit == 'per_month':
+                c = c / days_per_month
+                cost_floor_input = cost_floor_input / days_per_month
+            
             config = RentalConfig(
                 X=config_data['inventory'],
                 T=config_data['periods'],
-                c=config_data['cost'],
+                c=c,
                 s=config_data.get('salvage', 0.0),
                 total_arrivals=config_data['total_arrivals'],
                 target_leftover=config_data.get('target_leftover', 3),
                 failure_threshold=config_data.get('failure_threshold', 5),
-                cost_floor=config_data.get('cost_floor', 0.0)
+                cost_floor=cost_floor_input
             )
             
             # Convert prices to per-day if needed (same as get-dynamic-threshold API)
@@ -192,42 +254,70 @@ def check_offer():
                 offer_type=offer_type
             )
             
-            # Convert rationale back to user-friendly units for display
-            if unit == 'per_month' and offer_type == 'per_period':
-                # Scale back the rationale values for per-month display
-                import re
-                # Find price and threshold values in the rationale and replace them
-                def replace_values(match):
-                    per_day_price = float(match.group(1))
-                    operator = match.group(2)
-                    per_day_threshold = float(match.group(3))
-                    per_month_price = per_day_price * days_per_month
-                    per_month_threshold = per_day_threshold * days_per_month
-                    
-                    # Round to avoid floating-point precision issues
-                    per_month_price = round(per_month_price, 2)
-                    per_month_threshold = round(per_month_threshold, 2)
-                    
-                    # Return the replacement with same format as original
-                    return f"{per_month_price:.2f} {operator} threshold {per_month_threshold:.2f}"
-                
-                # Apply the replacement
-                rationale = re.sub(r'(\d+\.\d+) (≥|<) threshold (\d+\.\d+)', 
-                                 replace_values, rationale)
-                
-            # Scale margin for display if needed
-            if unit == 'per_month' and offer_type == 'per_period':
-                margin = margin * days_per_month
-                margin = round(margin, 2)  # Round to avoid floating-point precision issues
+            # Get structured threshold data for robust rendering
+            duration = data.get('duration', 1)
+            
+            # Calculate the threshold used in decision
+            if use_dynamic:
+                sobp_per, sobp_total = calculator.compute_sobp_threshold(duration, current_period, current_inventory)
+                if offer_type == 'total':
+                    threshold_used_per_day = sobp_total / duration  # Convert back to per-day for consistency
+                    threshold_type = "sobp_total"
+                else:
+                    threshold_used_per_day = sobp_per
+                    threshold_type = "sobp_per_period"
+            else:
+                static_result = calculator.compute_static_threshold()
+                threshold_used_per_day = static_result.operational_cutoff
+                threshold_type = "static"
+            
+            # Convert values for display
+            display_offer_price = round(original_offer_price, 2)
+            if unit == 'per_month':
+                display_threshold = round(threshold_used_per_day * days_per_month, 2)
+                display_margin = round(margin * days_per_month, 2) if margin > 0 else 0.0
+            else:
+                display_threshold = round(threshold_used_per_day, 2)
+                display_margin = round(margin, 2) if margin > 0 else 0.0
+            
+            # Generate clean rationale string
+            decision_text = "Accept" if accept else "Reject"
+            if offer_type == 'total':
+                rationale = f"{decision_text}: total {display_offer_price:.2f} {'≥' if accept else '<'} threshold {display_threshold:.2f} (D={duration}"
+                if accept and display_margin > 0:
+                    rationale += f", margin: {display_margin:.2f}"
+                rationale += ")"
+            else:
+                rationale = f"{decision_text}: per-period {display_offer_price:.2f} {'≥' if accept else '<'} threshold {display_threshold:.2f} (D={duration}"
+                if accept and display_margin > 0:
+                    rationale += f", margin: {display_margin:.2f}/period"
+                rationale += ")"
+        
+        end_time = time.time()
+        total_time = end_time - start_time
+        print(f"[API DEBUG] /api/check-offer completed in {total_time:.3f} seconds", file=sys.stderr)
         
         return jsonify({
             'accept': accept,
             'decision': 'ACCEPT' if accept else 'REJECT',
             'rationale': rationale,
-            'margin': margin
+            'margin': display_margin,
+            # Structured data for robust rendering
+            'structured': {
+                'offer_price': display_offer_price,
+                'threshold': display_threshold,
+                'threshold_type': threshold_type,
+                'duration': duration,
+                'offer_type': offer_type,
+                'unit': unit,
+                'margin': display_margin
+            }
         })
         
     except Exception as e:
+        end_time = time.time()
+        total_time = end_time - start_time
+        print(f"[API DEBUG] /api/check-offer FAILED in {total_time:.3f} seconds: {str(e)}", file=sys.stderr)
         return jsonify({'error': str(e)}), 400
 
 @app.route('/api/get-dynamic-threshold', methods=['POST'])
@@ -252,6 +342,8 @@ def get_dynamic_threshold():
             cost_floor=config_data.get('cost_floor', 0.0)
         )
         
+        print(f"[THRESHOLD DEBUG] Config: inventory={config.X}, periods={config.T}, cost={config.c}, cost_floor={config.cost_floor}", file=sys.stderr)
+        
         # Convert prices to per-day if needed
         prices_in = data['prices']
         if unit == 'per_month':
@@ -259,12 +351,16 @@ def get_dynamic_threshold():
         price_dist = PriceDistribution(prices_in)
         calculator = RentalThresholdCalculator(config, price_dist)
         
+        print(f"[THRESHOLD DEBUG] Prices (converted): {prices_in[:5]}... (showing first 5)", file=sys.stderr)
+        
         # Get dynamic programming results
         dynamic_result = calculator.compute_dynamic_program()
         static_result = calculator.compute_static_threshold()
         
         current_period = data.get('current_period', 0)
         current_inventory = data.get('current_inventory', config.X)
+        
+        print(f"[THRESHOLD DEBUG] State: t={current_period}, x={current_inventory}", file=sys.stderr)
         
         # Handle boundary conditions
         if current_period >= config.T:
@@ -281,24 +377,37 @@ def get_dynamic_threshold():
             message = "Normal operation"
         
         static_threshold = static_result.operational_cutoff
+        print(f"[THRESHOLD DEBUG] Dynamic threshold: {dynamic_threshold}, Static threshold: {static_threshold}", file=sys.stderr)
 
         # SOBP thresholds for requested duration (defaults to 1)
         duration = data.get('duration', 1)
+        print(f"[THRESHOLD DEBUG] Requested duration: {duration}", file=sys.stderr)
         sobp_per, sobp_total = calculator.compute_sobp_threshold(duration, current_period, current_inventory)
+        
+        print(f"[THRESHOLD DEBUG] SOBP: per={sobp_per}, total={sobp_total}, duration={duration}", file=sys.stderr)
         
         return jsonify({
             'dynamic_threshold': dynamic_threshold if dynamic_threshold != float('inf') else 999999,
             'static_threshold': static_threshold,
             'sobp_per_period_threshold': sobp_per,
-            'sobp_total_threshold': sobp_total,
+            'sobp_total_threshold': sobp_total,  # Don't scale this - let frontend decide
             'duration': duration,
             'current_period': current_period,
             'current_inventory': current_inventory,
             'is_end_condition': dynamic_threshold == float('inf'),
-            'message': message
+            'message': message,
+            # Add unit information for frontend scaling decisions
+            'unit_info': {
+                'calculation_unit': 'per_day',
+                'display_unit': unit,
+                'scale_factor': days_per_month if unit == 'per_month' else 1
+            }
         })
         
     except Exception as e:
+        print(f"[THRESHOLD DEBUG] ERROR: {str(e)}", file=sys.stderr)
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 400
 
 @app.route('/api/check-pacing', methods=['POST'])
