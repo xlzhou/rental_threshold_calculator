@@ -11,7 +11,12 @@ import json
 import os
 import sys
 import tempfile
+import logging
+from logging.handlers import RotatingFileHandler
 from werkzeug.utils import secure_filename
+import psutil
+import gc
+import time
 
 # Import the existing calculator logic
 from rental_threshold_calculator_dynamic import (
@@ -22,6 +27,18 @@ from rental_threshold_calculator_dynamic import (
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
 app.config['UPLOAD_FOLDER'] = tempfile.gettempdir()
+
+# Configure logging
+if not app.debug:
+    # File handler with rotation
+    file_handler = RotatingFileHandler('rental_calculator.log', maxBytes=10240000, backupCount=5)
+    file_handler.setFormatter(logging.Formatter(
+        '%(asctime)s %(levelname)s: %(message)s [in %(pathname)s:%(lineno)d]'
+    ))
+    file_handler.setLevel(logging.INFO)
+    app.logger.addHandler(file_handler)
+    app.logger.setLevel(logging.INFO)
+    app.logger.info('Rental Calculator startup')
 
 # Cache for calculators to avoid recomputing DP
 calculator_cache = {}
@@ -173,7 +190,9 @@ def calculate_threshold():
     except Exception as e:
         end_time = time.time()
         total_time = end_time - start_time
-        print(f"[API DEBUG] /api/calculate FAILED in {total_time:.3f} seconds: {str(e)}", file=sys.stderr)
+        error_msg = f"/api/calculate FAILED in {total_time:.3f} seconds: {str(e)}"
+        print(f"[API DEBUG] {error_msg}", file=sys.stderr)
+        app.logger.error(error_msg)
         return jsonify({'error': str(e)}), 400
 
 @app.route('/api/check-offer', methods=['POST'])
@@ -581,12 +600,67 @@ def export_results(format_type):
     except Exception as e:
         return jsonify({'error': str(e)}), 400
 
+@app.route('/api/health', methods=['GET'])
+def health_check():
+    """Health check with memory and cache statistics."""
+    try:
+        process = psutil.Process()
+        memory_info = process.memory_info()
+        
+        # Get cache statistics
+        cache_stats = {
+            'cache_size': len(calculator_cache),
+            'cache_max_size': cache_max_size
+        }
+        
+        # Memory usage in MB
+        memory_stats = {
+            'rss_mb': round(memory_info.rss / 1024 / 1024, 2),
+            'vms_mb': round(memory_info.vms / 1024 / 1024, 2),
+            'percent': round(process.memory_percent(), 2)
+        }
+        
+        # Trigger garbage collection if memory usage is high
+        if memory_stats['percent'] > 70:
+            gc.collect()
+            app.logger.warning(f"High memory usage detected: {memory_stats['percent']}%, triggered GC")
+        
+        return jsonify({
+            'status': 'healthy',
+            'memory': memory_stats,
+            'cache': cache_stats,
+            'timestamp': time.time()
+        })
+    except Exception as e:
+        app.logger.error(f"Health check failed: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/clear-cache', methods=['POST'])
+def clear_cache():
+    """Emergency cache clearing endpoint."""
+    try:
+        global calculator_cache
+        cache_size_before = len(calculator_cache)
+        calculator_cache.clear()
+        gc.collect()
+        
+        app.logger.info(f"Cache manually cleared: {cache_size_before} -> 0")
+        return jsonify({
+            'status': 'success',
+            'cleared_entries': cache_size_before,
+            'message': 'Cache cleared and garbage collection triggered'
+        })
+    except Exception as e:
+        app.logger.error(f"Cache clearing failed: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
 @app.errorhandler(404)
 def not_found(error):
     return jsonify({'error': 'Not found'}), 404
 
 @app.errorhandler(500)
 def internal_error(error):
+    app.logger.error(f"Internal server error: {str(error)}")
     return jsonify({'error': 'Internal server error'}), 500
 
 if __name__ == '__main__':

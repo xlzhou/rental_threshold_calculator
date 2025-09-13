@@ -567,12 +567,9 @@ class RentalCalculator {
     }
 
     autoRecalculateDecision() {
-        // Only recalculate if there's a valid offer price entered
-        const offerPrice = parseFloat(document.getElementById('offer-price').value);
-        if (!isNaN(offerPrice) && offerPrice > 0 && this.results) {
-            // Automatically trigger offer check
-            this.checkOffer();
-        }
+        // Auto-calculation disabled - user must click "Check Offer" button manually
+        // This prevents unwanted API calls and gives user full control
+        return;
     }
 
     async updateDynamicThreshold() {
@@ -822,6 +819,15 @@ class RentalCalculator {
         button.classList.add('loading');
         button.style.opacity = '0.7';
         
+        // Disable Check Offer button during main calculations
+        if (buttonId === 'calculate-btn') {
+            const checkOfferBtn = document.getElementById('check-offer');
+            if (checkOfferBtn) {
+                checkOfferBtn.disabled = true;
+                checkOfferBtn.style.opacity = '0.5';
+            }
+        }
+        
         // Show a calculation message
         this.showMessage('Calculating optimal threshold...', 'info');
     }
@@ -831,6 +837,15 @@ class RentalCalculator {
         button.disabled = false;
         button.classList.remove('loading');
         button.style.opacity = '1';
+        
+        // Re-enable Check Offer button when main calculation is finished
+        if (buttonId === 'calculate-btn') {
+            const checkOfferBtn = document.getElementById('check-offer');
+            if (checkOfferBtn) {
+                checkOfferBtn.disabled = false;
+                checkOfferBtn.style.opacity = '1';
+            }
+        }
         
         // Restore original text using i18n
         const originalTexts = {

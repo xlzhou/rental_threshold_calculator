@@ -6,7 +6,7 @@ class I18n {
         this.translations = {
             en: {
                 // Header
-                'title': 'Rental Threshold Calculator',
+                'title': 'Rental Threshold Calculator v3.3',
                 'subtitle': 'Optimize rental inventory decisions with threshold-based policies',
                 'help': '📖 Help',
                 
@@ -104,7 +104,7 @@ class I18n {
             },
             zh: {
                 // Header
-                'title': '租赁阈值计算器',
+                'title': '租赁阈值计算器 v3.3',
                 'subtitle': '基于阈值策略优化租赁库存决策',
                 'help': '📖 帮助',
                 

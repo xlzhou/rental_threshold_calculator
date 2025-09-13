@@ -382,13 +382,13 @@ class RentalThresholdCalculator:
         # Use memoization key to avoid redundant calculations
         memo_key = (k, current_x, t)
         if hasattr(self, '_memo_cache') and memo_key in self._memo_cache:
-            # Cache hit - print occasionally for debugging
-            if t % 20 == 0 and k > 3:  # Log cache hits for expensive calls
+            # Cache hit - only log very occasionally to prevent spam
+            if t % 200 == 0 and k > 5:  # Log cache hits much less frequently
                 print(f"[DEBUG] Cache HIT: k={k}, x={current_x}, t={t}", file=sys.stderr)
             return self._memo_cache[memo_key]
         
-        # Cache miss - this is expensive
-        if k > 3 and t % 20 == 0:
+        # Cache miss - this is expensive (logging only for very high k values to reduce spam)
+        if k > 6 and t % 50 == 0:
             print(f"[DEBUG] Computing k={k} arrivals for state (t={t}, x={current_x})", file=sys.stderr)
         
         # Early termination for very large inventory: if current_x is much larger than 
@@ -449,7 +449,9 @@ class RentalThresholdCalculator:
             keys_to_remove = list(self._memo_cache.keys())[:max_cache_size//2]
             for key in keys_to_remove:
                 del self._memo_cache[key]
-            print(f"[DEBUG] Cleared memo cache - was {max_cache_size}, now {len(self._memo_cache)}", file=sys.stderr)
+            # Only log cache clearing occasionally to prevent spam
+            if k > 5 and t % 100 == 0:
+                print(f"[DEBUG] Cleared memo cache - was {max_cache_size}, now {len(self._memo_cache)}", file=sys.stderr)
         
         self._memo_cache[memo_key] = result
         
