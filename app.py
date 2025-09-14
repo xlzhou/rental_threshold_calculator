@@ -105,7 +105,11 @@ def calculate_threshold():
     import sys
     
     start_time = time.time()
-    print(f"[API DEBUG] /api/calculate started at {time.strftime('%H:%M:%S')}", file=sys.stderr)
+    try:
+        print(f"[API DEBUG] /api/calculate started at {time.strftime('%H:%M:%S')}", file=sys.stderr)
+    except (OSError, IOError):
+        # Fallback to app logger if stderr is unavailable (daemon mode)
+        app.logger.info(f"[API DEBUG] /api/calculate started at {time.strftime('%H:%M:%S')}")
     
     try:
         data = request.get_json()
