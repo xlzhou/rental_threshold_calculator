@@ -652,6 +652,13 @@ class RentalCalculator {
         } finally {
             // Always clear the threshold update flag
             this.isUpdatingThreshold = false;
+            
+            // Enable Check Offer button now that dynamic threshold calculation is complete
+            const checkOfferBtn = document.getElementById('check-offer');
+            if (checkOfferBtn) {
+                checkOfferBtn.disabled = false;
+                checkOfferBtn.style.opacity = '1';
+            }
         }
     }
 
@@ -838,14 +845,8 @@ class RentalCalculator {
         button.classList.remove('loading');
         button.style.opacity = '1';
         
-        // Re-enable Check Offer button when main calculation is finished
-        if (buttonId === 'calculate-btn') {
-            const checkOfferBtn = document.getElementById('check-offer');
-            if (checkOfferBtn) {
-                checkOfferBtn.disabled = false;
-                checkOfferBtn.style.opacity = '1';
-            }
-        }
+        // Check Offer button will be enabled after dynamic threshold calculation completes
+        // (Don't enable it immediately here)
         
         // Restore original text using i18n
         const originalTexts = {

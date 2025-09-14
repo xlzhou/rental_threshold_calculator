@@ -507,12 +507,25 @@ class RentalThresholdCalculator:
         print(f"[SOBP DEBUG] Sum of bid prices: {sum_b}", file=sys.stderr)
         print(f"[SOBP DEBUG] Config: c={self.config.c}, cost_floor={self.config.cost_floor}", file=sys.stderr)
 
-        per_period_threshold = max(self.config.cost_floor, self.config.c + (sum_b / duration))
-        per_period_threshold = round(per_period_threshold, 2)  # Round to avoid floating-point precision issues
+        # Calculate threshold with precision handling
+        calculated_threshold = self.config.c + (sum_b / duration)
+        per_period_threshold = max(self.config.cost_floor, calculated_threshold)
+        
+        # If very close to cost_floor, snap to it to avoid floating point artifacts
+        if abs(per_period_threshold - self.config.cost_floor) < 0.05:
+            per_period_threshold = self.config.cost_floor
+        else:
+            per_period_threshold = round(per_period_threshold, 2)  # Round to avoid floating-point precision issues
         
         total_threshold_raw = self.config.c * duration + sum_b
         total_threshold = max(self.config.cost_floor * duration, total_threshold_raw)
-        total_threshold = round(total_threshold, 2)  # Round to avoid floating-point precision issues
+        
+        # If very close to cost_floor * duration, snap to it to avoid floating point artifacts
+        expected_cost_floor_total = self.config.cost_floor * duration
+        if abs(total_threshold - expected_cost_floor_total) < 0.05:
+            total_threshold = expected_cost_floor_total
+        else:
+            total_threshold = round(total_threshold, 2)  # Round to avoid floating-point precision issues
         
         print(f"[SOBP DEBUG] Final thresholds: per_period={per_period_threshold}, total={total_threshold}", file=sys.stderr)
         

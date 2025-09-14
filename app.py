@@ -124,6 +124,8 @@ def calculate_threshold():
         days_per_month = int(data.get('days_per_month', 30) or 30)
 
         # Convert prices/costs to per-day if inputs are monthly
+        # Store original cost_floor for precision-preserving display
+        original_cost_floor = cost_floor
         c = data['cost']
         cost_floor_input = cost_floor
         prices_in = list(data['prices'])
@@ -235,6 +237,7 @@ def check_offer():
             # Convert costs to per-day if needed (same as get-dynamic-threshold API)
             c = config_data['cost']
             cost_floor_input = config_data.get('cost_floor', 0.0)
+            original_cost_floor = cost_floor_input  # Store original before conversion
             if unit == 'per_month':
                 c = c / days_per_month
                 cost_floor_input = cost_floor_input / days_per_month
@@ -297,10 +300,20 @@ def check_offer():
             # Convert values for display
             display_offer_price = round(original_offer_price, 2)
             if unit == 'per_month':
-                display_threshold = round(threshold_used_per_day * days_per_month, 2)
+                # Use higher precision rounding to avoid display artifacts
+                threshold_monthly = threshold_used_per_day * days_per_month
+                # If very close to cost_floor, snap to it to avoid floating point display issues
+                if abs(threshold_monthly - original_cost_floor) < 0.05:
+                    display_threshold = round(original_cost_floor, 2)
+                else:
+                    display_threshold = round(threshold_monthly, 2)
                 display_margin = round(margin * days_per_month, 2) if margin > 0 else 0.0
             else:
-                display_threshold = round(threshold_used_per_day, 2)
+                # Similar logic for per-day units
+                if abs(threshold_used_per_day - cost_floor_input) < 0.05:
+                    display_threshold = round(cost_floor_input, 2)
+                else:
+                    display_threshold = round(threshold_used_per_day, 2)
                 display_margin = round(margin, 2) if margin > 0 else 0.0
             
             # Generate clean rationale string
